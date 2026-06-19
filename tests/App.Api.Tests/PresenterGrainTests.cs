@@ -63,6 +63,23 @@ public sealed class PresenterGrainTests
     }
 
     [Fact]
+    public async Task ClearActive_unfocuses_the_global_presentation()
+    {
+        var presenter = NewPresenter();
+        await presenter.Initialize("Bob");
+        var actionId = await presenter.CreateMultipleChoice("Lunch?", ["Pizza", "Sushi"]);
+        await presenter.SetActive(actionId);
+
+        await presenter.ClearActive();
+
+        Assert.Null((await presenter.GetState()).ActiveActionId);
+        var focus = await _cluster.GrainFactory
+            .GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey)
+            .GetFocus();
+        Assert.Null(focus);
+    }
+
+    [Fact]
     public async Task SetActive_rejects_unknown_action()
     {
         var presenter = NewPresenter();

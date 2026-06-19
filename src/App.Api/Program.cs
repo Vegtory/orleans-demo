@@ -169,6 +169,13 @@ api.MapPost("/presenter/{key}/actions/{actionId}/activate", async (string key, s
     }
 });
 
+api.MapPost("/presenter/{key}/deactivate", async (string key, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    await grains.GetGrain<IPresenterGrain>(key).ClearActive();
+    return Results.Ok(new { active = false });
+});
+
 api.MapGet("/presenter/{key}/actions/{actionId}/results", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();
