@@ -55,3 +55,14 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Node / SvelteKit (frontend)
+node_modules/
+.svelte-kit/
+.vite/
+
+# Generated static frontend output (produced by the SvelteKit build)
+src/App.Api/wwwroot/
+
+# User-specific files
+*.user
