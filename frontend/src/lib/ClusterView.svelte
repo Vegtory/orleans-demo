@@ -83,27 +83,46 @@
   });
   let siloCount = $derived(new Set(appGrains.map((g) => g.siloAddress)).size);
 
-  // --- Layout --------------------------------------------------------------
+  // --- Spiderweb layout ----------------------------------------------------
+  // Each silo is rendered as its own radial "web": a central hub with grains
+  // placed on concentric rings along evenly-spaced spokes. Spoke lines (hub ->
+  // grain) and ring lines (grain -> neighbouring grain) form the web strands;
+  // each grain is a colored dot labelled with its key. Silos sit side by side,
+  // each in its own column, and the web scales down to fit narrow columns.
   const VB_W = 1000;
-  const NODE_W = 134;
-  const NODE_H = 34;
-  const CELL_W = NODE_W + 14;
-  const CELL_H = NODE_H + 14;
-  const HEADER_H = 34;
-  const PAD_X = 16;
-  const PAD_Y = 16;
-  const SILO_GAP = 18;
+  const NODE_R = 6.5; // grain dot radius
+  const HUB_R = 11; // silo hub radius
+  const INNER_R = 54; // radius of the first (innermost) ring
+  const RING_GAP = 46; // spacing between concentric rings
+  const COL_PAD = 38; // breathing room inside a silo column
+  const LABEL_GAP = 18; // room reserved for the outermost key labels
+  const MIN_H = 380;
 
   interface Pos {
     x: number;
     y: number;
     type: string;
   }
-  interface SiloBox {
+  interface WebLine {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    ring: boolean;
+  }
+  interface SiloHub {
     silo: string;
-    x: number;
-    w: number;
+    cx: number;
+    cy: number;
+    radius: number;
     count: number;
+  }
+
+  // How many spokes a web of `count` grains uses — grows gently with the count
+  // so small silos stay simple and large ones fan out into a denser web.
+  function spokesFor(count: number): number {
+    if (count <= 1) return 1;
+    return Math.min(11, Math.max(5, Math.round(Math.sqrt(count * 1.9))));
   }
 
   let layout = $derived.by(() => {
@@ -113,42 +132,83 @@
     }
     const silos = [...bySilo.entries()];
     const n = Math.max(silos.length, 1);
-    const siloW = (VB_W - SILO_GAP * (n + 1)) / n;
-    const cols = Math.max(1, Math.floor((siloW - PAD_X * 2) / CELL_W));
+    const colW = VB_W / n;
+    const colHalf = colW / 2;
+    const maxAllowed = colHalf - COL_PAD - LABEL_GAP;
 
-    const positions = new Map<string, Pos>();
-    let maxRows = 1;
-
-    const boxes: SiloBox[] = silos.map(([silo, gs], si) => {
+    // First pass: geometry + per-silo scale so each web fits its column.
+    const meta = silos.map(([silo, gs]) => {
       gs.sort(
         (a, b) =>
           typeKey(a.grainId).localeCompare(typeKey(b.grainId)) ||
           a.grainId.localeCompare(b.grainId)
       );
-      const x0 = SILO_GAP + si * (siloW + SILO_GAP);
-      const rows = Math.max(1, Math.ceil(gs.length / cols));
-      maxRows = Math.max(maxRows, rows);
-      gs.forEach((g, i) => {
-        const r = Math.floor(i / cols);
-        const c = i % cols;
-        const x = x0 + PAD_X + c * CELL_W + NODE_W / 2;
-        const y = HEADER_H + PAD_Y + r * CELL_H + NODE_H / 2;
-        positions.set(g.grainId, { x, y, type: typeKey(g.grainId) });
-      });
-      return { silo, x: x0, w: siloW, count: gs.length };
+      const spokes = spokesFor(gs.length);
+      const rings = Math.max(1, Math.ceil(gs.length / spokes));
+      const naturalR = INNER_R + (rings - 1) * RING_GAP;
+      const scale = naturalR > 0 ? Math.min(1, maxAllowed / naturalR) : 1;
+      return { silo, gs, spokes, rings, radius: naturalR * scale, scale };
     });
 
-    const height = HEADER_H + PAD_Y * 2 + maxRows * CELL_H;
-    return { boxes, positions, width: VB_W, height };
+    const maxRadius = Math.max(0, ...meta.map((m) => m.radius));
+    const height = Math.max(MIN_H, 2 * (maxRadius + NODE_R + LABEL_GAP + 34));
+    const cy = height / 2;
+
+    const positions = new Map<string, Pos>();
+    const web: WebLine[] = [];
+    const hubs: SiloHub[] = [];
+
+    meta.forEach((m, si) => {
+      const cx = si * colW + colHalf;
+      const innerR = INNER_R * m.scale;
+      const ringGap = RING_GAP * m.scale;
+      const S = m.spokes;
+
+      // Place each grain on (spoke, ring) so spokes line up across rings.
+      const bySpoke = new Map<number, { x: number; y: number; r: number }[]>();
+      const byRing = new Map<number, { x: number; y: number; s: number }[]>();
+
+      m.gs.forEach((g, i) => {
+        const s = i % S;
+        const r = Math.floor(i / S);
+        const ang = (s / S) * Math.PI * 2 - Math.PI / 2;
+        const radius = innerR + r * ringGap;
+        const x = cx + radius * Math.cos(ang);
+        const y = cy + radius * Math.sin(ang);
+        positions.set(g.grainId, { x, y, type: typeKey(g.grainId) });
+        (bySpoke.get(s) ?? bySpoke.set(s, []).get(s)!).push({ x, y, r });
+        (byRing.get(r) ?? byRing.set(r, []).get(r)!).push({ x, y, s });
+      });
+
+      // Spoke strands: hub -> outermost grain on each occupied spoke.
+      for (const arr of bySpoke.values()) {
+        const tip = arr.reduce((a, b) => (b.r > a.r ? b : a));
+        web.push({ x1: cx, y1: cy, x2: tip.x, y2: tip.y, ring: false });
+      }
+
+      // Ring strands: connect neighbouring grains on the same ring.
+      for (const arr of byRing.values()) {
+        const pts = [...arr].sort((a, b) => a.s - b.s);
+        const closed = pts.length === S && pts.length > 2;
+        const segs = closed ? pts.length : pts.length - 1;
+        for (let k = 0; k < segs; k++) {
+          const a = pts[k];
+          const b = pts[(k + 1) % pts.length];
+          web.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, ring: true });
+        }
+      }
+
+      hubs.push({ silo: m.silo, cx, cy, radius: m.radius + NODE_R + 12, count: m.gs.length });
+    });
+
+    return { positions, web, hubs, width: VB_W, height };
   });
 
   // --- Call animations -----------------------------------------------------
   interface Anim {
     id: string;
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
+    sourceId: string;
+    targetId: string;
     color: string;
     start: number;
     success: boolean;
@@ -189,18 +249,15 @@
   }
 
   function scheduleAnim(c: CallRecord, startAt: number) {
-    const from = layout.positions.get(c.sourceGrainId!);
-    const to = layout.positions.get(c.targetGrainId);
-    if (!from || !to) return; // an endpoint isn't currently visible — skip
+    // Endpoints are resolved live (in `pulses`) against the current layout, so
+    // a strand keeps tracking its grains even as the web reshapes around them.
     anims = [
       ...anims,
       {
         id: crypto.randomUUID(),
-        x1: from.x,
-        y1: from.y,
-        x2: to.x,
-        y2: to.y,
-        color: color(to.type),
+        sourceId: c.sourceGrainId!,
+        targetId: c.targetGrainId,
+        color: color(typeKey(c.targetGrainId)),
         start: startAt,
         success: c.success
       }
@@ -224,18 +281,21 @@
     for (const a of anims) {
       const t = now - a.start;
       if (t < 0) continue; // not started yet
+      const from = layout.positions.get(a.sourceId);
+      const to = layout.positions.get(a.targetId);
+      if (!from || !to) continue; // an endpoint isn't currently visible — skip
       const p = Math.min(t / TRAVEL_MS, 1);
       const opacity = t <= TRAVEL_MS ? 1 : Math.max(0, 1 - (t - TRAVEL_MS) / FADE_MS);
       out.push({
         id: a.id,
         color: a.color,
         success: a.success,
-        x1: a.x1,
-        y1: a.y1,
-        x2: a.x2,
-        y2: a.y2,
-        dotX: a.x1 + (a.x2 - a.x1) * p,
-        dotY: a.y1 + (a.y2 - a.y1) * p,
+        x1: from.x,
+        y1: from.y,
+        x2: to.x,
+        y2: to.y,
+        dotX: from.x + (to.x - from.x) * p,
+        dotY: from.y + (to.y - from.y) * p,
         opacity
       });
     }
@@ -362,42 +422,52 @@
         class="w-full"
         style="min-width:520px; height:auto"
         role="img"
-        aria-label="Grains in their silos with live communication lines"
+        aria-label="Grains arranged as a spiderweb per silo, with live communication lines"
       >
-        <!-- Silo containers -->
-        {#each layout.boxes as box (box.silo)}
+        <!-- Silo clusters: faint boundary + label -->
+        {#each layout.hubs as hub (hub.silo)}
           <g>
-            <rect
-              x={box.x}
-              y={0}
-              width={box.w}
-              height={layout.height}
-              rx="12"
-              class="fill-slate-50 stroke-slate-200"
+            <circle
+              cx={hub.cx}
+              cy={hub.cy}
+              r={hub.radius}
+              class="fill-slate-50/60 stroke-slate-200"
               stroke-width="1.5"
+              stroke-dasharray="4 5"
             />
             <text
-              x={box.x + 14}
-              y={22}
+              x={hub.cx}
+              y={hub.cy - hub.radius - 10}
+              text-anchor="middle"
               class="fill-slate-500"
               font-size="13"
               font-weight="600"
             >
-              Silo {siloLabel(box.silo)}
-            </text>
-            <text
-              x={box.x + box.w - 14}
-              y={22}
-              text-anchor="end"
-              class="fill-slate-400"
-              font-size="12"
-            >
-              {box.count}
+              Silo {siloLabel(hub.silo)} · {hub.count}
             </text>
           </g>
         {/each}
 
-        <!-- Communication pulses (drawn beneath the nodes) -->
+        <!-- Web strands: spokes (hub -> grain) and rings (grain -> grain) -->
+        {#each layout.web as strand, i (i)}
+          <line
+            x1={strand.x1}
+            y1={strand.y1}
+            x2={strand.x2}
+            y2={strand.y2}
+            class={strand.ring ? 'stroke-slate-300' : 'stroke-slate-200'}
+            stroke-width={strand.ring ? 1 : 1.25}
+          />
+        {/each}
+
+        <!-- Silo hub centers -->
+        {#each layout.hubs as hub (hub.silo)}
+          <circle cx={hub.cx} cy={hub.cy} r={HUB_R + 5} fill="#0f172a" opacity="0.06" />
+          <circle cx={hub.cx} cy={hub.cy} r={HUB_R} class="fill-slate-700" />
+          <circle cx={hub.cx} cy={hub.cy} r={HUB_R - 4} class="fill-slate-400" />
+        {/each}
+
+        <!-- Communication pulses (drawn beneath the grain dots) -->
         {#each pulses as pulse (pulse.id)}
           <g opacity={pulse.opacity}>
             <line
@@ -406,35 +476,41 @@
               x2={pulse.dotX}
               y2={pulse.dotY}
               stroke={pulse.color}
-              stroke-width="2"
+              stroke-width="2.5"
               stroke-linecap="round"
             />
             <circle cx={pulse.dotX} cy={pulse.dotY} r="4.5" fill={pulse.color} />
-            <circle cx={pulse.dotX} cy={pulse.dotY} r="8" fill={pulse.color} opacity="0.25" />
+            <circle cx={pulse.dotX} cy={pulse.dotY} r="9" fill={pulse.color} opacity="0.22" />
           </g>
         {/each}
 
-        <!-- Grain nodes -->
+        <!-- Grain dots, each labelled with its key -->
         {#each appGrains as g (g.grainId)}
           {@const p = layout.positions.get(g.grainId)}
           {#if p}
-            <g transform="translate({p.x - NODE_W / 2}, {p.y - NODE_H / 2})">
-              <rect
-                width={NODE_W}
-                height={NODE_H}
-                rx="9"
-                fill="white"
-                stroke={color(p.type)}
+            {@const k = keyPart(g.grainId)}
+            <g>
+              <circle cx={p.x} cy={p.y} r={NODE_R + 3} fill={color(p.type)} opacity="0.18" />
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={NODE_R}
+                fill={color(p.type)}
+                stroke="white"
                 stroke-width="1.5"
-              />
-              <circle cx="13" cy={NODE_H / 2} r="4" fill={color(p.type)} />
-              <text x="24" y="15" font-size="11" font-weight="600" class="fill-slate-700">
-                {label(p.type)}
-              </text>
-              <text x="24" y="27" font-size="9.5" class="fill-slate-400">
-                {keyPart(g.grainId).length > 16
-                  ? keyPart(g.grainId).slice(0, 15) + '…'
-                  : keyPart(g.grainId)}
+              >
+                <title>{label(p.type)} · {k}</title>
+              </circle>
+              <text
+                x={p.x}
+                y={p.y + NODE_R + 11}
+                text-anchor="middle"
+                font-size="9"
+                font-weight="600"
+                class="fill-slate-600"
+                style="paint-order:stroke; stroke:white; stroke-width:2.5px"
+              >
+                {k.length > 12 ? k.slice(0, 11) + '…' : k}
               </text>
             </g>
           {/if}
