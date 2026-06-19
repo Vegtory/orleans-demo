@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { presenterSession } from '$lib/session';
+  import ClusterView from '$lib/ClusterView.svelte';
 
   interface ActionSummary { id: string; title: string; optionCount: number; }
   interface PresenterView { name: string; actions: ActionSummary[]; activeActionId: string | null; }
@@ -444,6 +445,11 @@
         </div>
       </section>
     {/if}
+
+    <!-- Cluster activity: active grain counts + live silo/communication map. -->
+    <div class="mt-6">
+      <ClusterView {password} />
+    </div>
   {/if}
 
   {#if error}

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using App.Api.GrainContracts;
+using App.Api.Observability;
 using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -44,6 +45,17 @@ builder.Host.UseOrleans(silo =>
         silo.UseLocalhostClustering();
         silo.AddMemoryGrainStorage("store");
     }
+
+    // -----------------------------------------------------------------------
+    // Debug/demo cluster observability (powers the presenter "cluster activity"
+    // visualization). An outgoing call filter records grain->grain calls into a
+    // per-silo queue; a grain service flushes that queue every 100ms into a
+    // cluster-wide rolling recorder. See App.Api.Observability.
+    // -----------------------------------------------------------------------
+    silo.Services.AddSingleton<LocalCallTraceQueue>();
+    silo.Services.AddSingleton<CallTraceSuppression>();
+    silo.AddOutgoingGrainCallFilter<GrainCallTraceFilter>();
+    silo.AddGrainService<CallTraceReporterGrainService>();
 });
 
 // Static presenter password. Every presenter request must send it in the
@@ -187,6 +199,28 @@ api.MapGet("/presenter/{key}/actions/{actionId}/results", async (string key, str
     {
         return Results.BadRequest(new { error = ex.Message });
     }
+});
+
+// --- Cluster activity (presenter-only, debug/demo visualization) -------------
+
+// Snapshot of every active activation and the silo it lives on.
+api.MapGet("/cluster/activations", async (HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+
+    var inventory = grains.GetGrain<IActivationInventoryGrain>(0);
+    // Idempotent: ensures the polling timer is running before we read.
+    await inventory.Start();
+    return Results.Ok(await inventory.GetSnapshot());
+});
+
+// The most recent grain-to-grain calls observed across the cluster.
+api.MapGet("/cluster/calls", async (HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+
+    var recorder = grains.GetGrain<IClusterCallRecorderGrain>(0);
+    return Results.Ok(await recorder.GetRecent());
 });
 
 // --- Attendee (no password) --------------------------------------------------
