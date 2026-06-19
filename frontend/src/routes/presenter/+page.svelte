@@ -7,8 +7,14 @@
   interface ResultsView { actionId: string; title: string; options: string[]; counts: number[]; total: number; }
 
   let name = $state('');
-  let password = $state('presenter-secret');
+  // The password is never pre-filled or persisted — the presenter types it each
+  // session. The default lives only in backend config.
+  let password = $state('');
   let key = $state<string | null>(null);
+  // True once we've authenticated against the grain and started polling. While
+  // false but `key` is set, we're resuming a saved session and just need the
+  // password again.
+  let connected = $state(false);
   let error = $state<string | null>(null);
   let busy = $state(false);
 
@@ -25,14 +31,13 @@
   let poll: ReturnType<typeof setInterval> | null = null;
 
   // On load, re-attach to an existing presenter grain if we created one before.
-  // The grain still lives in the Orleans cluster, so we resume polling it.
+  // The grain still lives in the Orleans cluster; we restore the key + name but
+  // prompt for the password again before reconnecting.
   onMount(() => {
     const saved = presenterSession.load();
     if (saved?.key) {
       key = saved.key;
       name = saved.name;
-      password = saved.password;
-      startPolling();
     }
   });
 
@@ -54,8 +59,7 @@
       if (res.status === 401) throw new Error('Wrong presenter password');
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       key = (await res.json()).key;
-      presenterSession.save({ key: key!, name, password });
-      startPolling();
+      await connect();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
     } finally {
@@ -63,10 +67,44 @@
     }
   }
 
+  // Reconnect to a session restored from localStorage using the just-entered
+  // password.
+  async function reconnect() {
+    error = null;
+    busy = true;
+    try {
+      await connect();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unknown error';
+    } finally {
+      busy = false;
+    }
+  }
+
+  // Verify the password against the grain, then start polling. Shared by the
+  // create and reconnect flows.
+  async function connect() {
+    if (!key) return;
+    const res = await fetch(`/api/presenter/${encodeURIComponent(key)}`, { headers: authHeaders() });
+    if (res.status === 401) throw new Error('Wrong presenter password');
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    view = await res.json();
+    presenterSession.save({ key, name });
+    connected = true;
+    poll = setInterval(refresh, 2000);
+  }
+
   async function refresh() {
     if (!key) return;
     try {
       const res = await fetch(`/api/presenter/${encodeURIComponent(key)}`, { headers: authHeaders() });
+      if (res.status === 401) {
+        // Password changed/invalid mid-session — drop back to the prompt.
+        if (poll) clearInterval(poll);
+        poll = null;
+        connected = false;
+        throw new Error('Wrong presenter password');
+      }
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       view = await res.json();
       if (selectedActionId) await loadResults(selectedActionId);
@@ -74,11 +112,6 @@
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
     }
-  }
-
-  function startPolling() {
-    refresh();
-    poll = setInterval(refresh, 2000);
   }
 
   function addOption() { options = [...options, '']; }
@@ -128,9 +161,21 @@
     poll = null;
     presenterSession.clear();
     key = null;
+    connected = false;
+    password = '';
+    name = '';
     view = null;
     results = null;
     selectedActionId = null;
+  }
+
+  // Abandon a restored session without reconnecting (e.g. "not me").
+  function startFresh() {
+    presenterSession.clear();
+    key = null;
+    password = '';
+    name = '';
+    error = null;
   }
 
   function pct(count: number, total: number) {
@@ -154,7 +199,42 @@
     </a>
   </header>
 
-  {#if !key}
+  {#if !connected && key}
+    <!-- Restored a saved session: re-enter the password to reconnect. -->
+    <div class="flex flex-1 flex-col justify-center">
+      <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+        <h1 class="text-2xl font-bold tracking-tight">Welcome back{name ? `, ${name}` : ''}</h1>
+        <p class="mt-1 text-sm text-slate-500">Enter the presenter password to reconnect to your session.</p>
+
+        <form class="mt-6 space-y-4" onsubmit={(e) => { e.preventDefault(); reconnect(); }}>
+          <div>
+            <label for="p-pwd-resume" class="mb-1 block text-sm font-medium text-slate-700">Presenter password</label>
+            <input
+              id="p-pwd-resume"
+              type="password"
+              bind:value={password}
+              autocomplete="current-password"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-base shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={busy || !password}
+            class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? 'Reconnecting…' : 'Reconnect'}
+          </button>
+          <button
+            type="button"
+            onclick={startFresh}
+            class="w-full rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            Not you? Start fresh
+          </button>
+        </form>
+      </div>
+    </div>
+  {:else if !connected}
     <div class="flex flex-1 flex-col justify-center">
       <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <h1 class="text-2xl font-bold tracking-tight">Start presenting</h1>
@@ -176,12 +256,13 @@
               id="p-pwd"
               type="password"
               bind:value={password}
+              autocomplete="current-password"
               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-base shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
             />
           </div>
           <button
             type="submit"
-            disabled={busy || !name.trim()}
+            disabled={busy || !name.trim() || !password}
             class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? 'Starting…' : 'Start presenting'}

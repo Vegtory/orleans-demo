@@ -13,10 +13,10 @@ export interface AttendeeSession {
 export interface PresenterSession {
   key: string;
   name: string;
-  // Stored so an authenticated refresh works without re-entering it. This is a
-  // demo app where the password is a shared, non-secret value; do not store
-  // real credentials in localStorage in production.
-  password: string;
+  // The presenter password is intentionally NOT persisted. It never touches
+  // localStorage (or the shipped bundle) — the presenter re-enters it to
+  // reconnect after a reload. Only the grain key and name are stored so the
+  // session can be re-attached to the existing grain in the cluster.
 }
 
 const ATTENDEE_KEY = 'orleans-demo:attendee';
