@@ -16,5 +16,10 @@ public interface IPresenterGrain : IGrainWithStringKey
     /// <summary>Puts one of this presenter's actions in focus on the global presentation.</summary>
     Task SetActive(string actionId);
 
+    /// <summary>
+    /// Clears the global focus so attendees see no live action. Idempotent.
+    /// </summary>
+    Task ClearActive();
+
     Task<ResultsView> GetResults(string actionId);
 }

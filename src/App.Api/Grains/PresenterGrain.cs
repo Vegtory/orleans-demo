@@ -66,6 +66,13 @@ public sealed class PresenterGrain : Grain, IPresenterGrain
         await _state.WriteStateAsync();
     }
 
+    public async Task ClearActive()
+    {
+        await GrainFactory.GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey).ClearFocus();
+        _state.State.ActiveActionId = null;
+        await _state.WriteStateAsync();
+    }
+
     public Task<ResultsView> GetResults(string actionId)
     {
         if (_state.State.Actions.All(a => a.Id != actionId))

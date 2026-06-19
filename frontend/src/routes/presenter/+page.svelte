@@ -20,6 +20,12 @@
 
   let view = $state<PresenterView | null>(null);
 
+  // The action currently in focus for attendees, resolved from the polled view.
+  let liveAction = $derived.by(() => {
+    if (!view?.activeActionId) return null;
+    return view.actions.find((a) => a.id === view!.activeActionId) ?? null;
+  });
+
   // New-question form.
   let title = $state('');
   let options = $state<string[]>(['', '']);
@@ -146,6 +152,15 @@
   async function activate(actionId: string) {
     if (!key) return;
     await fetch(`/api/presenter/${encodeURIComponent(key)}/actions/${actionId}/activate`, {
+      method: 'POST',
+      headers: authHeaders()
+    });
+    await refresh();
+  }
+
+  async function deactivate() {
+    if (!key) return;
+    await fetch(`/api/presenter/${encodeURIComponent(key)}/deactivate`, {
       method: 'POST',
       headers: authHeaders()
     });
@@ -288,6 +303,33 @@
         Sign out
       </button>
     </div>
+
+    <!-- Now live: always shows what attendees currently see, with an unfocus control. -->
+    <section class="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Now live</h2>
+        {#if liveAction}
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
+            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500"></span> LIVE
+          </span>
+        {/if}
+      </div>
+      {#if liveAction}
+        <div class="mt-3 flex items-center gap-3">
+          <p class="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{liveAction.title}</p>
+          <button
+            onclick={deactivate}
+            class="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+          >
+            Unfocus
+          </button>
+        </div>
+      {:else}
+        <p class="mt-3 text-sm text-slate-400">
+          Nothing is live. Attendees see “Just enjoy the talk for now.” Set a question live to focus their attention.
+        </p>
+      {/if}
+    </section>
 
     <!-- New question -->
     <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

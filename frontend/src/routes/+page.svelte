@@ -190,7 +190,7 @@
           <div class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
             <span class="h-3 w-3 animate-ping rounded-full bg-indigo-500"></span>
           </div>
-          <p class="mt-4 font-medium text-slate-600">Waiting for the presenter…</p>
+          <p class="mt-4 font-medium text-slate-600">Just enjoy the talk for now</p>
           <p class="mt-1 text-sm text-slate-400">The next question will appear here automatically.</p>
         </div>
       {/if}
