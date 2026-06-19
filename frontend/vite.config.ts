@@ -1,8 +1,9 @@
 import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  plugins: [sveltekit()],
+  plugins: [tailwindcss(), sveltekit()],
   server: {
     // Proxy API calls to the locally running ASP.NET Core app during `vite dev`.
     proxy: {

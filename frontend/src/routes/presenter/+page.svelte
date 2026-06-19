@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
+  import { presenterSession } from '$lib/session';
 
   interface ActionSummary { id: string; title: string; optionCount: number; }
   interface PresenterView { name: string; actions: ActionSummary[]; activeActionId: string | null; }
@@ -23,6 +24,18 @@
 
   let poll: ReturnType<typeof setInterval> | null = null;
 
+  // On load, re-attach to an existing presenter grain if we created one before.
+  // The grain still lives in the Orleans cluster, so we resume polling it.
+  onMount(() => {
+    const saved = presenterSession.load();
+    if (saved?.key) {
+      key = saved.key;
+      name = saved.name;
+      password = saved.password;
+      startPolling();
+    }
+  });
+
   function authHeaders(json = false): HeadersInit {
     const h: Record<string, string> = { 'X-Presenter-Password': password };
     if (json) h['Content-Type'] = 'application/json';
@@ -41,6 +54,7 @@
       if (res.status === 401) throw new Error('Wrong presenter password');
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       key = (await res.json()).key;
+      presenterSession.save({ key: key!, name, password });
       startPolling();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
@@ -56,6 +70,7 @@
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       view = await res.json();
       if (selectedActionId) await loadResults(selectedActionId);
+      error = null;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
     }
@@ -108,104 +123,202 @@
     if (res.ok) results = await res.json();
   }
 
+  function signOut() {
+    if (poll) clearInterval(poll);
+    poll = null;
+    presenterSession.clear();
+    key = null;
+    view = null;
+    results = null;
+    selectedActionId = null;
+  }
+
+  function pct(count: number, total: number) {
+    return total > 0 ? Math.round((count / total) * 100) : 0;
+  }
+
   onDestroy(() => { if (poll) clearInterval(poll); });
 </script>
 
-<main>
-  <p><a href="/">&larr; home</a></p>
-  <h1>Presenter</h1>
+<div class="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 py-8">
+  <header class="mb-8 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-lg font-bold text-white">P</span>
+      <span class="text-lg font-semibold tracking-tight">Live Poll <span class="text-slate-400">· Presenter</span></span>
+    </div>
+    <a
+      href="/"
+      class="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+    >
+      ← Attendee view
+    </a>
+  </header>
 
   {#if !key}
-    <div class="row">
-      <label for="p-name">Your name</label>
-      <input id="p-name" bind:value={name} placeholder="bob" />
-    </div>
-    <div class="row">
-      <label for="p-pwd">Password</label>
-      <input id="p-pwd" type="password" bind:value={password} />
-    </div>
-    <button onclick={create} disabled={busy || !name.trim()}>Start presenting</button>
-  {:else}
-    <p>Your presenter key: <code>{key}</code> {#if view}({view.name}){/if}</p>
+    <div class="flex flex-1 flex-col justify-center">
+      <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+        <h1 class="text-2xl font-bold tracking-tight">Start presenting</h1>
+        <p class="mt-1 text-sm text-slate-500">Create questions and control which one is live.</p>
 
-    <section>
-      <h2>Create a multiple-choice question</h2>
-      <div class="row">
-        <label for="q-title">Question</label>
-        <input id="q-title" bind:value={title} placeholder="What's for lunch?" />
+        <form class="mt-6 space-y-4" onsubmit={(e) => { e.preventDefault(); create(); }}>
+          <div>
+            <label for="p-name" class="mb-1 block text-sm font-medium text-slate-700">Your name</label>
+            <input
+              id="p-name"
+              bind:value={name}
+              placeholder="bob"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-base shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+            />
+          </div>
+          <div>
+            <label for="p-pwd" class="mb-1 block text-sm font-medium text-slate-700">Presenter password</label>
+            <input
+              id="p-pwd"
+              type="password"
+              bind:value={password}
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-base shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-base font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? 'Starting…' : 'Start presenting'}
+          </button>
+        </form>
       </div>
-      {#each options as _opt, i}
-        <div class="row">
-          <input bind:value={options[i]} placeholder={`Option ${i + 1}`} />
-          {#if options.length > 2}
-            <button onclick={() => removeOption(i)}>✕</button>
-          {/if}
+    </div>
+  {:else}
+    <div class="mb-6 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div class="min-w-0">
+        <p class="text-xs uppercase tracking-wide text-slate-400">Presenting as</p>
+        <p class="truncate font-semibold">{view?.name || name}</p>
+      </div>
+      <button
+        onclick={signOut}
+        class="shrink-0 rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+      >
+        Sign out
+      </button>
+    </div>
+
+    <!-- New question -->
+    <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h2 class="text-lg font-semibold tracking-tight">Create a question</h2>
+      <form class="mt-4 space-y-3" onsubmit={(e) => { e.preventDefault(); createQuestion(); }}>
+        <input
+          bind:value={title}
+          placeholder="What's for lunch?"
+          class="w-full rounded-lg border border-slate-300 px-3 py-2 text-base shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+        />
+        <div class="space-y-2">
+          {#each options as _opt, i}
+            <div class="flex items-center gap-2">
+              <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+                {String.fromCharCode(65 + i)}
+              </span>
+              <input
+                bind:value={options[i]}
+                placeholder={`Option ${i + 1}`}
+                class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+              />
+              {#if options.length > 2}
+                <button
+                  type="button"
+                  onclick={() => removeOption(i)}
+                  aria-label="Remove option"
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                >✕</button>
+              {/if}
+            </div>
+          {/each}
         </div>
-      {/each}
-      <div class="row">
-        <button onclick={addOption}>Add option</button>
-        <button onclick={createQuestion} disabled={busy || !title.trim()}>Create</button>
-      </div>
+        <div class="flex items-center justify-between pt-1">
+          <button
+            type="button"
+            onclick={addOption}
+            class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+          >
+            + Add option
+          </button>
+          <button
+            type="submit"
+            disabled={busy || !title.trim()}
+            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Create
+          </button>
+        </div>
+      </form>
     </section>
 
-    <section>
-      <h2>Your questions</h2>
+    <!-- Questions list -->
+    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h2 class="text-lg font-semibold tracking-tight">Your questions</h2>
       {#if view && view.actions.length > 0}
-        <ul class="actions">
+        <ul class="mt-4 divide-y divide-slate-100">
           {#each view.actions as a}
-            <li class:active={a.id === view.activeActionId}>
-              <span class="a-title">{a.title}</span>
-              <span class="a-meta">{a.optionCount} options</span>
+            <li class="flex items-center gap-3 py-3">
+              <div class="min-w-0 flex-1">
+                <p class="truncate font-medium">{a.title}</p>
+                <p class="text-xs text-slate-400">{a.optionCount} options</p>
+              </div>
               {#if a.id === view.activeActionId}
-                <span class="badge">LIVE</span>
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
+                  <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500"></span> LIVE
+                </span>
               {:else}
-                <button onclick={() => activate(a.id)}>Set live</button>
+                <button
+                  onclick={() => activate(a.id)}
+                  class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                >
+                  Set live
+                </button>
               {/if}
-              <button onclick={() => loadResults(a.id)}>Results</button>
+              <button
+                onclick={() => loadResults(a.id)}
+                class="rounded-lg px-3 py-1.5 text-sm font-medium transition
+                  {selectedActionId === a.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}"
+              >
+                Results
+              </button>
             </li>
           {/each}
         </ul>
       {:else}
-        <p>No questions yet.</p>
+        <p class="mt-3 text-sm text-slate-400">No questions yet. Create one above.</p>
       {/if}
     </section>
 
+    <!-- Results -->
     {#if results}
-      <section>
-        <h2>Results: {results.title}</h2>
-        <ul class="results">
+      <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="flex items-baseline justify-between">
+          <h2 class="text-lg font-semibold tracking-tight">{results.title}</h2>
+          <span class="text-sm text-slate-400">{results.total} response{results.total === 1 ? '' : 's'}</span>
+        </div>
+        <div class="mt-4 space-y-3">
           {#each results.options as opt, i}
-            <li>
-              <span>{opt}</span>
-              <strong>{results.counts[i]}</strong>
-            </li>
+            <div>
+              <div class="mb-1 flex items-center justify-between text-sm">
+                <span class="font-medium">{String.fromCharCode(65 + i)}. {opt}</span>
+                <span class="text-slate-500">{results.counts[i]} · {pct(results.counts[i], results.total)}%</span>
+              </div>
+              <div class="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div
+                  class="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                  style="width: {pct(results.counts[i], results.total)}%"
+                ></div>
+              </div>
+            </div>
           {/each}
-        </ul>
-        <p>{results.total} response{results.total === 1 ? '' : 's'}</p>
+        </div>
       </section>
     {/if}
   {/if}
 
-  {#if error}<p class="error">Error: {error}</p>{/if}
-</main>
-
-<style>
-  main { max-width: 40rem; margin: 3rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; line-height: 1.5; }
-  h1 { font-size: 1.6rem; }
-  h2 { font-size: 1.15rem; margin-top: 1.5rem; }
-  section { border-top: 1px solid #eee; padding-top: 0.5rem; }
-  .row { display: flex; gap: 0.5rem; align-items: center; margin: 0.6rem 0; }
-  label { min-width: 5rem; }
-  input { padding: 0.4rem 0.6rem; font-size: 1rem; flex: 1; }
-  button { padding: 0.4rem 0.9rem; font-size: 1rem; cursor: pointer; }
-  button:disabled { cursor: default; opacity: 0.6; }
-  .actions, .results { list-style: none; padding: 0; }
-  .actions li { display: flex; gap: 0.6rem; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid #f0f0f0; }
-  .actions li.active { background: #f3fbf3; }
-  .a-title { flex: 1; }
-  .a-meta { color: #777; font-size: 0.85rem; }
-  .badge { background: #137333; color: #fff; border-radius: 0.3rem; padding: 0.05rem 0.4rem; font-size: 0.75rem; }
-  .results li { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid #f0f0f0; }
-  .error { color: #b00020; }
-  code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 0.2rem; }
-</style>
+  {#if error}
+    <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+  {/if}
+</div>

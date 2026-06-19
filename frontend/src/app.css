@@ -1,0 +1,11 @@
+@import 'tailwindcss';
+
+/* App-wide base styling. Tailwind v4 picks up utilities used in markup. */
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+}
