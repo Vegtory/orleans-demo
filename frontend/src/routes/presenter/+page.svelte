@@ -31,13 +31,18 @@
   let poll: ReturnType<typeof setInterval> | null = null;
 
   // On load, re-attach to an existing presenter grain if we created one before.
-  // The grain still lives in the Orleans cluster; we restore the key + name but
-  // prompt for the password again before reconnecting.
+  // The grain still lives in the Orleans cluster. If we saved the password
+  // (entered in a previous session), reconnect automatically; otherwise restore
+  // the key + name and prompt for the password before reconnecting.
   onMount(() => {
     const saved = presenterSession.load();
     if (saved?.key) {
       key = saved.key;
       name = saved.name;
+      if (saved.password) {
+        password = saved.password;
+        reconnect();
+      }
     }
   });
 
@@ -89,7 +94,7 @@
     if (res.status === 401) throw new Error('Wrong presenter password');
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
     view = await res.json();
-    presenterSession.save({ key, name });
+    presenterSession.save({ key, name, password });
     connected = true;
     poll = setInterval(refresh, 2000);
   }

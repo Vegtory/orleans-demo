@@ -50,7 +50,7 @@ builder.Host.UseOrleans(silo =>
 // X-Presenter-Password header. Override via Presenter:Password or PRESENTER_PASSWORD.
 var presenterPassword = builder.Configuration["Presenter:Password"]
     ?? builder.Configuration["PRESENTER_PASSWORD"]
-    ?? "presenter-secret";
+    ?? "presenting-secrets!";
 
 // ---------------------------------------------------------------------------
 // Web services.
