@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { attendeeSession } from '$lib/session';
+  import { attendeeSession, sessionHeaders } from '$lib/session';
 
   interface QuestionView { actionId: string; title: string; options: string[]; }
   interface AttendeeView { name: string; focus: QuestionView | null; yourAnswer: number | null; }
@@ -35,7 +35,7 @@
     try {
       const res = await fetch('/api/attendee', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
       });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
@@ -52,7 +52,7 @@
   async function refresh() {
     if (!key) return;
     try {
-      const res = await fetch(`/api/attendee/${encodeURIComponent(key)}`);
+      const res = await fetch(`/api/attendee/${encodeURIComponent(key)}`, { headers: sessionHeaders() });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       view = await res.json();
       error = null;
@@ -67,7 +67,7 @@
     try {
       const res = await fetch(`/api/attendee/${encodeURIComponent(key)}/answer`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ optionIndex })
       });
       if (res.status === 409) throw new Error('That question is no longer live');

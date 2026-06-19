@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import { sessionHeaders } from '$lib/session';
 
   // Live visualization of the Orleans cluster: which grains are active, on which
   // silo, and the grain-to-grain calls flowing between them. Data comes from two
@@ -246,7 +247,7 @@
   let raf = 0;
 
   function headers(): HeadersInit {
-    return { 'X-Presenter-Password': password };
+    return { ...sessionHeaders(), 'X-Presenter-Password': password };
   }
 
   async function tick() {

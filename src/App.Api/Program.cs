@@ -71,18 +71,22 @@ var presenterPassword = builder.Configuration["Presenter:Password"]
 
 // Fixed-window rate limiting for public safety, applied to /api routes.
 //
-// The limit is *per client* (keyed on remote IP) rather than a single global
-// bucket. The frontend polls several endpoints on short intervals — the
-// presenter cluster view alone polls 3 endpoints every 500ms (~360 req/min),
-// plus the presenter state/results poll — so a single browser legitimately
-// generates ~400+ requests/minute. A shared global bucket meant one user (or
-// one tab) instantly exhausted the budget for everyone, producing spurious 429s.
+// The limit is *per client* rather than a single global bucket. The frontend
+// polls several endpoints on short intervals — the presenter cluster view alone
+// polls 3 endpoints every 500ms (~360 req/min), plus the presenter state/results
+// poll — so a single browser legitimately generates ~400+ requests/minute. A
+// shared global bucket meant one user (or one tab) instantly exhausted the
+// budget for everyone, producing spurious 429s.
 //
-// PermitLimit/Window are configurable so a large audience (e.g. many attendees
-// behind a single venue NAT, who then share an IP partition) can be tuned
-// without a code change. Defaults leave comfortable headroom over the app's own
+// We partition on the X-Session-Id header (a stable per-browser id the SPA
+// sends on every /api call), falling back to remote IP when it's absent. This
+// keeps attendees behind a single venue NAT — who would otherwise share one IP
+// partition and trip the limit collectively — in their own buckets.
+//
+// PermitLimit/Window are configurable so the limit can be tuned without a code
+// change. The default leaves comfortable headroom over a single browser's peak
 // polling traffic.
-var rateLimitPermits = builder.Configuration.GetValue<int?>("RateLimiting:PermitLimit") ?? 1000;
+var rateLimitPermits = builder.Configuration.GetValue<int?>("RateLimiting:PermitLimit") ?? 600;
 var rateLimitWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:WindowSeconds") ?? 60;
 
 builder.Services.AddRateLimiter(options =>
@@ -90,7 +94,10 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy("api", httpContext =>
     {
-        var clientKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var sessionId = httpContext.Request.Headers["X-Session-Id"].ToString();
+        var clientKey = !string.IsNullOrWhiteSpace(sessionId)
+            ? $"sid:{sessionId}"
+            : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
         return RateLimitPartition.GetFixedWindowLimiter(clientKey, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = rateLimitPermits,
