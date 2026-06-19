@@ -1,3 +1,5 @@
+using App.Api.Observability;
+using Microsoft.Extensions.DependencyInjection;
 using Orleans.TestingHost;
 
 namespace App.Api.Tests;
@@ -5,12 +7,20 @@ namespace App.Api.Tests;
 /// <summary>
 /// Configures each in-process test silo. The grains use a persistence provider
 /// named "store"; here it is backed by in-memory storage (mirroring Local mode).
+/// The cluster observability pipeline (call filter + per-silo queue + reporter
+/// grain service) is registered too, mirroring Program.cs, so it can be
+/// integration-tested end to end.
 /// </summary>
 public sealed class TestSiloConfigurator : ISiloConfigurator
 {
     public void Configure(ISiloBuilder siloBuilder)
     {
         siloBuilder.AddMemoryGrainStorage("store");
+
+        siloBuilder.Services.AddSingleton<LocalCallTraceQueue>();
+        siloBuilder.Services.AddSingleton<CallTraceSuppression>();
+        siloBuilder.AddOutgoingGrainCallFilter<GrainCallTraceFilter>();
+        siloBuilder.AddGrainService<CallTraceReporterGrainService>();
     }
 }
 
