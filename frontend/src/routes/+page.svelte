@@ -1,67 +1,24 @@
 <script lang="ts">
-  // Counter id is editable; defaults to "demo". The frontend only ever calls
-  // relative API URLs (/api/...), so it works behind any host/ingress.
-  let id = $state('demo');
-  let value = $state<number | null>(null);
-  let loading = $state(false);
-  let error = $state<string | null>(null);
-
-  async function call(path: string, method: 'GET' | 'POST'): Promise<void> {
-    loading = true;
-    error = null;
-    try {
-      const res = await fetch(path, { method });
-      if (!res.ok) {
-        throw new Error(`Request failed (${res.status})`);
-      }
-      const data = await res.json();
-      value = data.value;
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
-      value = null;
-    } finally {
-      loading = false;
-    }
-  }
-
-  const encodedId = $derived(encodeURIComponent(id.trim() || 'demo'));
-
-  const load = () => call(`/api/counter/${encodedId}`, 'GET');
-  const increment = () => call(`/api/counter/${encodedId}/increment`, 'POST');
-  const reset = () => call(`/api/counter/${encodedId}/reset`, 'POST');
+  // Landing page: pick a role. Client-side routing handles the two routes.
 </script>
 
 <main>
-  <h1>.NET Orleans + Svelte starter</h1>
+  <h1>Live multiple-choice polling</h1>
   <p>
-    A minimal single-container starter: an ASP.NET Core minimal API co-hosting an
-    Orleans silo, with this static Svelte frontend served from <code>wwwroot</code>.
-    Each counter id maps to one Orleans grain.
+    An ASP.NET Core minimal API co-hosting an Orleans silo, with this static
+    Svelte frontend served from <code>wwwroot</code>. Presenters create questions
+    and put one in focus; attendees answer the one in focus.
   </p>
 
-  <div class="row">
-    <label for="counter-id">Counter id</label>
-    <input id="counter-id" bind:value={id} placeholder="demo" />
-    <button onclick={load} disabled={loading}>Load</button>
-  </div>
-
-  <div class="value">
-    {#if loading}
-      <span>Loading…</span>
-    {:else if value !== null}
-      <span>Value: <strong>{value}</strong></span>
-    {:else}
-      <span>No value loaded yet.</span>
-    {/if}
-  </div>
-
-  {#if error}
-    <p class="error">Error: {error}</p>
-  {/if}
-
-  <div class="row">
-    <button onclick={increment} disabled={loading}>Increment</button>
-    <button onclick={reset} disabled={loading}>Reset</button>
+  <div class="roles">
+    <a class="card" href="/presenter">
+      <h2>I'm a presenter</h2>
+      <p>Create questions, choose which is live, watch results.</p>
+    </a>
+    <a class="card" href="/attendee">
+      <h2>I'm an attendee</h2>
+      <p>Join with your name and answer the live question.</p>
+    </a>
   </div>
 </main>
 
@@ -76,31 +33,32 @@
   h1 {
     font-size: 1.6rem;
   }
-  .row {
+  .roles {
     display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    margin: 1rem 0;
+    gap: 1rem;
+    margin-top: 2rem;
   }
-  input {
-    padding: 0.4rem 0.6rem;
-    font-size: 1rem;
+  .card {
+    flex: 1;
+    display: block;
+    padding: 1rem 1.2rem;
+    border: 1px solid #ddd;
+    border-radius: 0.5rem;
+    text-decoration: none;
+    color: inherit;
   }
-  button {
-    padding: 0.4rem 0.9rem;
-    font-size: 1rem;
-    cursor: pointer;
+  .card:hover {
+    border-color: #888;
+    background: #fafafa;
   }
-  button:disabled {
-    cursor: default;
-    opacity: 0.6;
+  .card h2 {
+    font-size: 1.1rem;
+    margin: 0 0 0.3rem;
   }
-  .value {
-    font-size: 1.2rem;
-    margin: 1rem 0;
-  }
-  .error {
-    color: #b00020;
+  .card p {
+    margin: 0;
+    color: #555;
+    font-size: 0.95rem;
   }
   code {
     background: #f0f0f0;

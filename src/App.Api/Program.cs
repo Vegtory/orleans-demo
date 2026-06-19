@@ -1,3 +1,4 @@
+using System.Text;
 using System.Threading.RateLimiting;
 using App.Api.GrainContracts;
 using Microsoft.AspNetCore.RateLimiting;
@@ -11,8 +12,8 @@ var builder = WebApplication.CreateBuilder(args);
 //   Local        -> localhost clustering + in-memory grain storage (dev / single replica)
 //   AzureStorage -> Azure Table clustering + Azure Table grain persistence
 //
-// The grain storage provider is always named "counterStore" so grain code
-// (CounterGrain) is identical regardless of the backend.
+// The grain storage provider is always named "store" so grain code is identical
+// regardless of the backend.
 // ---------------------------------------------------------------------------
 // Note: use a non-"Orleans" config key — Orleans 10 reserves the "Orleans"
 // configuration section for its own provider configuration.
@@ -34,16 +35,22 @@ builder.Host.UseOrleans(silo =>
         silo.UseAzureStorageClustering(options =>
             options.TableServiceClient = new Azure.Data.Tables.TableServiceClient(connectionString));
 
-        silo.AddAzureTableGrainStorage("counterStore", options =>
+        silo.AddAzureTableGrainStorage("store", options =>
             options.TableServiceClient = new Azure.Data.Tables.TableServiceClient(connectionString));
     }
     else
     {
         // Local development / single-replica demo only.
         silo.UseLocalhostClustering();
-        silo.AddMemoryGrainStorage("counterStore");
+        silo.AddMemoryGrainStorage("store");
     }
 });
+
+// Static presenter password. Every presenter request must send it in the
+// X-Presenter-Password header. Override via Presenter:Password or PRESENTER_PASSWORD.
+var presenterPassword = builder.Configuration["Presenter:Password"]
+    ?? builder.Configuration["PRESENTER_PASSWORD"]
+    ?? "presenter-secret";
 
 // ---------------------------------------------------------------------------
 // Web services.
@@ -88,22 +95,120 @@ var api = app.MapGroup("/api").RequireRateLimiting("api");
 
 api.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
-api.MapGet("/counter/{id}", async (string id, IGrainFactory grains) =>
+// Turns a display name into a stable "{slug}-{6hex}" grain key.
+static string MakeKey(string name)
 {
-    var value = await grains.GetGrain<ICounterGrain>(id).Get();
-    return Results.Ok(new { id, value });
+    var slug = new StringBuilder();
+    foreach (var ch in name.Trim().ToLowerInvariant())
+    {
+        if (ch is >= 'a' and <= 'z' or >= '0' and <= '9')
+        {
+            slug.Append(ch);
+        }
+        else if (ch == ' ' && slug.Length > 0 && slug[^1] != '-')
+        {
+            slug.Append('-');
+        }
+    }
+
+    if (slug.Length == 0)
+    {
+        slug.Append("anon");
+    }
+
+    return $"{slug}-{Guid.NewGuid().ToString("N")[..6]}";
+}
+
+bool PresenterOk(HttpRequest request) =>
+    request.Headers["X-Presenter-Password"] == presenterPassword;
+
+// --- Presenter (password-protected) -----------------------------------------
+
+api.MapPost("/presenter", async (NameRequest body, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    if (string.IsNullOrWhiteSpace(body.Name)) return Results.BadRequest(new { error = "name is required" });
+
+    var key = MakeKey(body.Name);
+    await grains.GetGrain<IPresenterGrain>(key).Initialize(body.Name);
+    return Results.Ok(new { key });
 });
 
-api.MapPost("/counter/{id}/increment", async (string id, IGrainFactory grains) =>
+api.MapGet("/presenter/{key}", async (string key, HttpRequest req, IGrainFactory grains) =>
 {
-    var value = await grains.GetGrain<ICounterGrain>(id).Increment();
-    return Results.Ok(new { id, value });
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    return Results.Ok(await grains.GetGrain<IPresenterGrain>(key).GetState());
 });
 
-api.MapPost("/counter/{id}/reset", async (string id, IGrainFactory grains) =>
+api.MapPost("/presenter/{key}/actions", async (string key, CreateActionRequest body, HttpRequest req, IGrainFactory grains) =>
 {
-    await grains.GetGrain<ICounterGrain>(id).Reset();
-    return Results.Ok(new { id, value = 0 });
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    if (string.IsNullOrWhiteSpace(body.Title)) return Results.BadRequest(new { error = "title is required" });
+
+    var options = (body.Options ?? [])
+        .Select(o => o?.Trim() ?? string.Empty)
+        .Where(o => o.Length > 0)
+        .ToArray();
+    if (options.Length < 2) return Results.BadRequest(new { error = "at least two options are required" });
+
+    var actionId = await grains.GetGrain<IPresenterGrain>(key).CreateMultipleChoice(body.Title.Trim(), options);
+    return Results.Ok(new { actionId });
+});
+
+api.MapPost("/presenter/{key}/actions/{actionId}/activate", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    try
+    {
+        await grains.GetGrain<IPresenterGrain>(key).SetActive(actionId);
+        return Results.Ok(new { actionId, active = true });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+api.MapGet("/presenter/{key}/actions/{actionId}/results", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    try
+    {
+        return Results.Ok(await grains.GetGrain<IPresenterGrain>(key).GetResults(actionId));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+// --- Attendee (no password) --------------------------------------------------
+
+api.MapPost("/attendee", async (NameRequest body, IGrainFactory grains) =>
+{
+    if (string.IsNullOrWhiteSpace(body.Name)) return Results.BadRequest(new { error = "name is required" });
+
+    var key = MakeKey(body.Name);
+    await grains.GetGrain<IAttendeeGrain>(key).Initialize(body.Name);
+    return Results.Ok(new { key });
+});
+
+api.MapGet("/attendee/{key}", async (string key, IGrainFactory grains) =>
+    Results.Ok(await grains.GetGrain<IAttendeeGrain>(key).GetState()));
+
+api.MapPost("/attendee/{key}/answer", async (string key, AnswerRequest body, IGrainFactory grains) =>
+{
+    try
+    {
+        var accepted = await grains.GetGrain<IAttendeeGrain>(key).Answer(body.OptionIndex);
+        return accepted
+            ? Results.Ok(new { accepted = true })
+            : Results.Conflict(new { error = "no action is currently in focus" });
+    }
+    catch (ArgumentOutOfRangeException)
+    {
+        return Results.BadRequest(new { error = "optionIndex is out of range" });
+    }
 });
 
 // Unmatched /api/* routes return 404 (JSON) rather than falling through to the
@@ -115,3 +220,8 @@ api.MapFallback(() => Results.NotFound());
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+// Request bodies for the minimal-API endpoints.
+internal sealed record NameRequest(string Name);
+internal sealed record CreateActionRequest(string Title, string[]? Options);
+internal sealed record AnswerRequest(int OptionIndex);
