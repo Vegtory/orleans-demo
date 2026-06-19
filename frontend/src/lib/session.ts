@@ -22,6 +22,7 @@ export interface PresenterSession {
 
 const ATTENDEE_KEY = 'orleans-demo:attendee';
 const PRESENTER_KEY = 'orleans-demo:presenter';
+const CLIENT_ID_KEY = 'orleans-demo:client-id';
 
 function read<T>(storageKey: string): T | null {
   if (!browser) return null;
@@ -62,3 +63,39 @@ export const presenterSession = {
   save: (session: PresenterSession) => write(PRESENTER_KEY, session),
   clear: () => clear(PRESENTER_KEY)
 };
+
+// A stable per-browser id, sent as X-Session-Id on every /api call so the
+// backend rate limiter can partition by client instead of by IP. Without this,
+// many attendees behind one venue NAT would share a single IP partition and
+// trip the limit. Generated lazily and persisted so it survives reloads.
+let cachedClientId: string | null = null;
+
+export function clientId(): string {
+  if (cachedClientId) return cachedClientId;
+  if (!browser) return 'ssr';
+
+  let id: string | null = null;
+  try {
+    id = localStorage.getItem(CLIENT_ID_KEY);
+  } catch {
+    /* storage unavailable — fall through and use an ephemeral id */
+  }
+
+  if (!id) {
+    id = crypto.randomUUID();
+    try {
+      localStorage.setItem(CLIENT_ID_KEY, id);
+    } catch {
+      /* ignore — id stays in-memory for this page load only */
+    }
+  }
+
+  cachedClientId = id;
+  return id;
+}
+
+// Header bag that tags a request with the per-browser session id. Spread into
+// each fetch's headers, e.g. `headers: { ...sessionHeaders(), ... }`.
+export function sessionHeaders(): Record<string, string> {
+  return { 'X-Session-Id': clientId() };
+}

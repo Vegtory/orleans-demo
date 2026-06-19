@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { presenterSession } from '$lib/session';
+  import { presenterSession, sessionHeaders } from '$lib/session';
   import ClusterView from '$lib/ClusterView.svelte';
 
   interface ActionSummary { id: string; title: string; optionCount: number; }
@@ -54,7 +54,7 @@
   });
 
   function authHeaders(json = false): HeadersInit {
-    const h: Record<string, string> = { 'X-Presenter-Password': password };
+    const h: Record<string, string> = { ...sessionHeaders(), 'X-Presenter-Password': password };
     if (json) h['Content-Type'] = 'application/json';
     return h;
   }
