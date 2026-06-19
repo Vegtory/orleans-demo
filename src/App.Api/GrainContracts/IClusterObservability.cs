@@ -33,6 +33,16 @@ public sealed record ActiveGrainRecord(
     [property: Id(2)] string SiloAddress);
 
 /// <summary>
+/// The cluster-wide call-tracing toggle. <see cref="Version"/> increments only
+/// when <see cref="Enabled"/> actually changes, so silos can cheaply detect when
+/// they need to apply a new value.
+/// </summary>
+[GenerateSerializer]
+public sealed record TraceToggleState(
+    [property: Id(0)] bool Enabled,
+    [property: Id(1)] long Version);
+
+/// <summary>
 /// Cluster-wide rolling recorder of the most recent grain calls. A single
 /// well-known activation (key 0) keeps the last <c>N</c> calls reported by every
 /// silo's <c>CallTraceReporterGrainService</c>.
@@ -53,4 +63,15 @@ public interface IActivationInventoryGrain : IGrainWithIntegerKey
     /// <summary>Starts the periodic snapshot timer. Idempotent.</summary>
     Task Start();
     Task<IReadOnlyList<ActiveGrainRecord>> GetSnapshot();
+}
+
+/// <summary>
+/// Cluster-wide owner of the call-tracing on/off toggle. A single well-known
+/// activation (key 0) holds the authoritative value; each silo's reporter polls
+/// it and updates its local <c>CallTraceRuntimeSwitch</c>.
+/// </summary>
+public interface IClusterTraceControlGrain : IGrainWithIntegerKey
+{
+    Task<TraceToggleState> GetState();
+    Task SetEnabled(bool enabled);
 }

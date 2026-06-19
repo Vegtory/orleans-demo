@@ -19,6 +19,7 @@ public sealed class TestSiloConfigurator : ISiloConfigurator
 
         siloBuilder.Services.AddSingleton<LocalCallTraceQueue>();
         siloBuilder.Services.AddSingleton<CallTraceSuppression>();
+        siloBuilder.Services.AddSingleton<CallTraceRuntimeSwitch>();
         siloBuilder.AddOutgoingGrainCallFilter<GrainCallTraceFilter>();
         siloBuilder.AddGrainService<CallTraceReporterGrainService>();
     }

@@ -13,12 +13,14 @@ namespace App.Api.Observability;
 public sealed class GrainCallTraceFilter(
     LocalCallTraceQueue queue,
     CallTraceSuppression suppression,
+    CallTraceRuntimeSwitch runtimeSwitch,
     ILocalSiloDetails siloDetails)
     : IOutgoingGrainCallFilter
 {
     public async Task Invoke(IOutgoingGrainCallContext context)
     {
-        if (suppression.IsSuppressed || ShouldIgnore(context))
+        // A single local volatile read when tracing is off — no grain call.
+        if (!runtimeSwitch.IsEnabled || suppression.IsSuppressed || ShouldIgnore(context))
         {
             await context.Invoke();
             return;
@@ -58,6 +60,7 @@ public sealed class GrainCallTraceFilter(
         var interfaceName = context.InterfaceName;
         return interfaceName.Contains(nameof(IClusterCallRecorderGrain), StringComparison.Ordinal)
             || interfaceName.Contains(nameof(IActivationInventoryGrain), StringComparison.Ordinal)
+            || interfaceName.Contains(nameof(IClusterTraceControlGrain), StringComparison.Ordinal)
             || interfaceName.Contains("IManagementGrain", StringComparison.Ordinal)
             || interfaceName.StartsWith("Orleans.", StringComparison.Ordinal);
     }

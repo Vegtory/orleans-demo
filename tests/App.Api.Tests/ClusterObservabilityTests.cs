@@ -1,4 +1,6 @@
 using App.Api.GrainContracts;
+using App.Api.Observability;
+using Microsoft.Extensions.DependencyInjection;
 using Orleans.TestingHost;
 
 namespace App.Api.Tests;
@@ -88,6 +90,70 @@ public sealed class ClusterObservabilityTests
         Assert.DoesNotContain(recent, c => c.SourceGrainId is null);
     }
 
+    [Fact]
+    public async Task ClusterTraceControl_increments_version_only_on_a_real_change()
+    {
+        // Isolated key so this doesn't disturb the live toggle on key 0.
+        var control = _cluster.GrainFactory.GetGrain<IClusterTraceControlGrain>(424_242);
+
+        var initial = await control.GetState();
+        Assert.True(initial.Enabled);
+
+        await control.SetEnabled(true); // no-op: same value
+        Assert.Equal(initial.Version, (await control.GetState()).Version);
+
+        await control.SetEnabled(false); // real change
+        var changed = await control.GetState();
+        Assert.False(changed.Enabled);
+        Assert.Equal(initial.Version + 1, changed.Version);
+    }
+
+    [Fact]
+    public async Task Tracing_toggle_propagates_to_the_silo_switch_and_gates_recording()
+    {
+        var runtimeSwitch = ((InProcessSiloHandle)_cluster.Primary)
+            .SiloHost.Services.GetRequiredService<CallTraceRuntimeSwitch>();
+        var control = _cluster.GrainFactory.GetGrain<IClusterTraceControlGrain>(0);
+        var recorder = _cluster.GrainFactory.GetGrain<IClusterCallRecorderGrain>(0);
+
+        try
+        {
+            // Disable: the reporter polls every 100ms and flips the local switch.
+            await control.SetEnabled(false);
+            await PollUntilTrue(() => !runtimeSwitch.IsEnabled);
+            Assert.False(runtimeSwitch.IsEnabled);
+
+            // A grain-to-grain call made while disabled must not be recorded.
+            var offKey = $"bob-{Guid.NewGuid():N}";
+            var offPresenter = _cluster.GrainFactory.GetGrain<IPresenterGrain>(offKey);
+            await offPresenter.Initialize("Bob");
+            await offPresenter.CreateMultipleChoice("Off?", ["a", "b"]);
+            await Task.Delay(300); // a few flush cycles
+            Assert.DoesNotContain(
+                await recorder.GetRecent(),
+                c => c.SourceGrainId == $"presenter/{offKey}");
+
+            // Re-enable: the switch flips back and new calls are recorded again.
+            await control.SetEnabled(true);
+            await PollUntilTrue(() => runtimeSwitch.IsEnabled);
+
+            var onKey = $"bob-{Guid.NewGuid():N}";
+            var onPresenter = _cluster.GrainFactory.GetGrain<IPresenterGrain>(onKey);
+            await onPresenter.Initialize("Bob");
+            var onAction = await onPresenter.CreateMultipleChoice("On?", ["a", "b"]);
+            var recent = await PollUntil(
+                recorder.GetRecent,
+                calls => calls.Any(c => IsConfigureCall(c, onKey, onAction)));
+            Assert.Contains(recent, c => IsConfigureCall(c, onKey, onAction));
+        }
+        finally
+        {
+            // Never leave tracing off for the other tests in this collection.
+            await control.SetEnabled(true);
+            await PollUntilTrue(() => runtimeSwitch.IsEnabled);
+        }
+    }
+
     private static bool IsConfigureCall(GrainCallRecord c, string presenterKey, string actionId) =>
         c.SourceGrainId == $"presenter/{presenterKey}" &&
         c.TargetGrainId == $"multiplechoice/{actionId}" &&
@@ -105,5 +171,14 @@ public sealed class ClusterObservabilityTests
         }
 
         return value;
+    }
+
+    private static async Task PollUntilTrue(Func<bool> predicate, int timeoutMs = 5_000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (!predicate() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+        }
     }
 }

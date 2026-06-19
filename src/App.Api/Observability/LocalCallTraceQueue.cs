@@ -15,6 +15,14 @@ public sealed class LocalCallTraceQueue
 
     public void Enqueue(GrainCallRecord record) => _queue.Enqueue(record);
 
+    /// <summary>Discards everything currently queued (used when tracing is turned off).</summary>
+    public void Clear()
+    {
+        while (_queue.TryDequeue(out _))
+        {
+        }
+    }
+
     /// <summary>Removes and returns up to <paramref name="max"/> queued records.</summary>
     public IReadOnlyList<GrainCallRecord> Drain(int max = 1_000)
     {

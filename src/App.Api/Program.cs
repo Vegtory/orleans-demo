@@ -54,6 +54,7 @@ builder.Host.UseOrleans(silo =>
     // -----------------------------------------------------------------------
     silo.Services.AddSingleton<LocalCallTraceQueue>();
     silo.Services.AddSingleton<CallTraceSuppression>();
+    silo.Services.AddSingleton<CallTraceRuntimeSwitch>();
     silo.AddOutgoingGrainCallFilter<GrainCallTraceFilter>();
     silo.AddGrainService<CallTraceReporterGrainService>();
 });
@@ -223,6 +224,25 @@ api.MapGet("/cluster/calls", async (HttpRequest req, IGrainFactory grains) =>
     return Results.Ok(await recorder.GetRecent());
 });
 
+// Cluster-wide call-tracing toggle. Disabling it makes the filter stop recording
+// (a local volatile read per call) and the reporter stop flushing; the change
+// propagates to every silo within the ~100ms poll interval.
+api.MapGet("/cluster/tracing", async (HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+
+    var state = await grains.GetGrain<IClusterTraceControlGrain>(0).GetState();
+    return Results.Ok(new { enabled = state.Enabled });
+});
+
+api.MapPost("/cluster/tracing", async (TraceToggleRequest body, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+
+    await grains.GetGrain<IClusterTraceControlGrain>(0).SetEnabled(body.Enabled);
+    return Results.Ok(new { enabled = body.Enabled });
+});
+
 // --- Attendee (no password) --------------------------------------------------
 
 api.MapPost("/attendee", async (NameRequest body, IGrainFactory grains) =>
@@ -266,3 +286,4 @@ app.Run();
 internal sealed record NameRequest(string Name);
 internal sealed record CreateActionRequest(string Title, string[]? Options);
 internal sealed record AnswerRequest(int OptionIndex);
+internal sealed record TraceToggleRequest(bool Enabled);

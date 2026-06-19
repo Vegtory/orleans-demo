@@ -67,6 +67,7 @@
 
   let activations = $state<ActiveGrain[]>([]);
   let error = $state<string | null>(null);
+  let tracingEnabled = $state(true);
 
   let appGrains = $derived(activations.filter(isAppGrain));
 
@@ -250,14 +251,30 @@
 
   async function tick() {
     try {
-      const [aRes, cRes] = await Promise.all([
+      const [aRes, cRes, tRes] = await Promise.all([
         fetch('/api/cluster/activations', { headers: headers() }),
-        fetch('/api/cluster/calls', { headers: headers() })
+        fetch('/api/cluster/calls', { headers: headers() }),
+        fetch('/api/cluster/tracing', { headers: headers() })
       ]);
-      if (!aRes.ok || !cRes.ok) throw new Error('Cluster activity unavailable');
+      if (!aRes.ok || !cRes.ok || !tRes.ok) throw new Error('Cluster activity unavailable');
       activations = await aRes.json();
       ingestCalls(await cRes.json());
+      // Reflect the cluster-wide toggle (another presenter may have flipped it).
+      tracingEnabled = (await tRes.json()).enabled;
       error = null;
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unknown error';
+    }
+  }
+
+  async function setTracing(enabled: boolean) {
+    tracingEnabled = enabled; // optimistic; the next poll confirms
+    try {
+      await fetch('/api/cluster/tracing', {
+        method: 'POST',
+        headers: { ...headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
     }
@@ -317,11 +334,27 @@
 
 <!-- Silo / communication map -->
 <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-  <div class="flex items-center justify-between">
+  <div class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-lg font-semibold tracking-tight">Cluster activity</h2>
-    <span class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
-      <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-500"></span> live · polling 500ms
-    </span>
+    <div class="flex items-center gap-4">
+      <label class="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
+        <input
+          type="checkbox"
+          checked={tracingEnabled}
+          onchange={(e) => setTracing((e.target as HTMLInputElement).checked)}
+          class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-300"
+        />
+        Record grain-to-grain calls
+      </label>
+      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
+        <span
+          class="h-1.5 w-1.5 rounded-full {tracingEnabled
+            ? 'animate-pulse bg-indigo-500'
+            : 'bg-slate-300'}"
+        ></span>
+        {tracingEnabled ? 'live · polling 500ms' : 'tracing paused'}
+      </span>
+    </div>
   </div>
 
   {#if appGrains.length > 0}

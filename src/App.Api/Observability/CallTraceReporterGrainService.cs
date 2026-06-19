@@ -24,11 +24,13 @@ public sealed class CallTraceReporterGrainService : GrainService, ICallTraceRepo
     private readonly IGrainFactory _grainFactory;
     private readonly LocalCallTraceQueue _queue;
     private readonly CallTraceSuppression _suppression;
+    private readonly CallTraceRuntimeSwitch _runtimeSwitch;
     private readonly ILogger<CallTraceReporterGrainService> _logger;
 
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private long _lastToggleVersion = -1;
 
     public CallTraceReporterGrainService(
         GrainId id,
@@ -36,12 +38,14 @@ public sealed class CallTraceReporterGrainService : GrainService, ICallTraceRepo
         ILoggerFactory loggerFactory,
         IGrainFactory grainFactory,
         LocalCallTraceQueue queue,
-        CallTraceSuppression suppression)
+        CallTraceSuppression suppression,
+        CallTraceRuntimeSwitch runtimeSwitch)
         : base(id, silo, loggerFactory)
     {
         _grainFactory = grainFactory;
         _queue = queue;
         _suppression = suppression;
+        _runtimeSwitch = runtimeSwitch;
         _logger = loggerFactory.CreateLogger<CallTraceReporterGrainService>();
     }
 
@@ -85,6 +89,14 @@ public sealed class CallTraceReporterGrainService : GrainService, ICallTraceRepo
         {
             while (_timer is not null && await _timer.WaitForNextTickAsync(cancellationToken))
             {
+                await RefreshTracingToggle();
+
+                // When tracing is off the filter stops recording; nothing to flush.
+                if (!_runtimeSwitch.IsEnabled)
+                {
+                    continue;
+                }
+
                 var batch = _queue.Drain();
                 if (batch.Count == 0)
                 {
@@ -108,6 +120,36 @@ public sealed class CallTraceReporterGrainService : GrainService, ICallTraceRepo
         catch (OperationCanceledException)
         {
             // Expected during shutdown.
+        }
+    }
+
+    // Polls the cluster-wide toggle and applies it to this silo's local switch.
+    // Only acts when the version changes, so steady state is a single cheap call.
+    private async Task RefreshTracingToggle()
+    {
+        var control = _grainFactory.GetGrain<IClusterTraceControlGrain>(0);
+        try
+        {
+            using (_suppression.Suppress())
+            {
+                var state = await control.GetState();
+                if (state.Version != _lastToggleVersion)
+                {
+                    _runtimeSwitch.SetEnabled(state.Enabled);
+                    _lastToggleVersion = state.Version;
+
+                    // Drop anything buffered while turning off so it isn't flushed
+                    // on the next enable.
+                    if (!state.Enabled)
+                    {
+                        _queue.Clear();
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to refresh Orleans call trace toggle.");
         }
     }
 }
