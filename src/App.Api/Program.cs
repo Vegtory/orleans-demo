@@ -14,8 +14,10 @@ var builder = WebApplication.CreateBuilder(args);
 // The grain storage provider is always named "counterStore" so grain code
 // (CounterGrain) is identical regardless of the backend.
 // ---------------------------------------------------------------------------
+// Note: use a non-"Orleans" config key — Orleans 10 reserves the "Orleans"
+// configuration section for its own provider configuration.
 var clustering = builder.Configuration["ORLEANS_CLUSTERING"]
-    ?? builder.Configuration["Orleans:Clustering"]
+    ?? builder.Configuration["OrleansClustering"]
     ?? "Local";
 
 builder.Host.UseOrleans(silo =>
@@ -104,8 +106,12 @@ api.MapPost("/counter/{id}/reset", async (string id, IGrainFactory grains) =>
     return Results.Ok(new { id, value = 0 });
 });
 
-// SPA fallback: any non-API route serves index.html so client-side routing and
-// page refreshes work. /api/* is matched first by the routes above.
+// Unmatched /api/* routes return 404 (JSON) rather than falling through to the
+// SPA fallback below and serving index.html.
+api.MapFallback(() => Results.NotFound());
+
+// SPA fallback: any other non-API route serves index.html so client-side
+// routing and page refreshes work.
 app.MapFallbackToFile("index.html");
 
 app.Run();
