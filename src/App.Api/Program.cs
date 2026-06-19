@@ -69,16 +69,35 @@ var presenterPassword = builder.Configuration["Presenter:Password"]
 // Web services.
 // ---------------------------------------------------------------------------
 
-// Basic fixed-window rate limiting for public safety. Applied to /api routes.
+// Fixed-window rate limiting for public safety, applied to /api routes.
+//
+// The limit is *per client* (keyed on remote IP) rather than a single global
+// bucket. The frontend polls several endpoints on short intervals — the
+// presenter cluster view alone polls 3 endpoints every 500ms (~360 req/min),
+// plus the presenter state/results poll — so a single browser legitimately
+// generates ~400+ requests/minute. A shared global bucket meant one user (or
+// one tab) instantly exhausted the budget for everyone, producing spurious 429s.
+//
+// PermitLimit/Window are configurable so a large audience (e.g. many attendees
+// behind a single venue NAT, who then share an IP partition) can be tuned
+// without a code change. Defaults leave comfortable headroom over the app's own
+// polling traffic.
+var rateLimitPermits = builder.Configuration.GetValue<int?>("RateLimiting:PermitLimit") ?? 1000;
+var rateLimitWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:WindowSeconds") ?? 60;
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddFixedWindowLimiter("api", limiter =>
+    options.AddPolicy("api", httpContext =>
     {
-        limiter.PermitLimit = 100;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-        limiter.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        var clientKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(clientKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = rateLimitPermits,
+            Window = TimeSpan.FromSeconds(rateLimitWindowSeconds),
+            QueueLimit = 0,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+        });
     });
 });
 
