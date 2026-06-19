@@ -107,6 +107,60 @@ docker run --rm -p 8080:8080 orleans-demo
 
 Open `http://localhost:8080`.
 
+## Running with Azure Storage
+
+By default the app uses `ORLEANS_CLUSTERING=Local` (in-memory storage), which is
+perfect for `dotnet run` and a single-replica demo but **does not persist** —
+the counter resets when the process restarts. To use durable Azure Table storage
+(and the clustering required before scaling to multiple replicas), set
+`ORLEANS_CLUSTERING=AzureStorage` and provide a connection string.
+
+Orleans creates the tables it needs automatically on first run:
+
+| Table                  | Purpose                              |
+| ---------------------- | ------------------------------------ |
+| `OrleansSiloInstances` | Cluster membership (clustering)      |
+| `OrleansGrainState`    | Grain state (counter persistence)    |
+
+### Option A — locally with the Azurite emulator (no Azure account)
+
+The simplest way to run the **exact** Azure Storage code path locally is the
+[Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite)
+emulator. A `docker-compose.yml` is included that starts Azurite and the app
+together in `AzureStorage` mode:
+
+```bash
+docker compose up --build
+# open http://localhost:8080
+```
+
+Increment the counter, then restart (`docker compose restart app`) — the value
+**persists**, unlike in `Local` mode.
+
+> Prefer not to use Docker for Azurite? Install it via npm
+> (`npm install -g azurite`), run `azurite`, then start the app with
+> `ORLEANS_CLUSTERING=AzureStorage` and
+> `ORLEANS_AZURE_STORAGE_CONNECTION_STRING="UseDevelopmentStorage=true"`.
+
+### Option B — a real Azure Storage account
+
+1. Create a **Storage account** (general-purpose v2 is fine).
+2. Copy a **connection string** from *Access keys* in the portal (or
+   `az storage account show-connection-string`).
+3. Run the app with:
+
+   ```bash
+   ORLEANS_CLUSTERING=AzureStorage \
+   ORLEANS_AZURE_STORAGE_CONNECTION_STRING="<your connection string>" \
+   dotnet run            # or pass these as env vars to the container
+   ```
+
+No tables need to be created by hand, and no firewall changes are required
+beyond allowing your app to reach the storage account. Treat the connection
+string as a secret — keep it in environment variables / a secret store, never
+in the frontend or source. (A future hardening step is to switch to managed
+identity instead of a connection string.)
+
 ## Manual Azure Container Apps deployment
 
 No infrastructure-as-code is included — deploy manually.
