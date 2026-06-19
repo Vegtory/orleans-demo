@@ -35,15 +35,11 @@ jobs:
         uses: azure/container-apps-deploy-action@v2
         with:
           appSourcePath: ${{ github.workspace }}
-          _dockerfilePathKey_: _dockerfilePath_
-          _targetLabelKey_: _targetLabel_
-          registryUrl: 
+          registryUrl: orleansdemo.azurecr.io
           registryUsername: ${{ secrets.ORLEANSDEMO_REGISTRY_USERNAME }}
           registryPassword: ${{ secrets.ORLEANSDEMO_REGISTRY_PASSWORD }}
           containerAppName: orleans-demo
           resourceGroup: orleans-demo-sweden
-          imageToBuild: default/[parameters('containerAppName')]:${{ github.sha }}
-          _buildArgumentsKey_: |
-            _buildArgumentsValues_
+          imageToBuild: orleansdemo.azurecr.io/orleans-demo:${{ github.sha }}
 
 
