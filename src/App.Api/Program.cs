@@ -230,37 +230,36 @@ api.MapGet("/presenter/{key}/actions/{actionId}/results", async (string key, str
 
 // --- Cluster activity (presenter-only, debug/demo visualization) -------------
 
-// Snapshot of every active activation and the silo it lives on.
-api.MapGet("/cluster/activations", async (HttpRequest req, IGrainFactory grains) =>
+// Single poll endpoint backing the live cluster view: a snapshot of every active
+// activation (and the silo it lives on), the most recent grain-to-grain calls,
+// and the current cluster-wide tracing toggle. Consolidated into one request so
+// the view polls once per tick instead of three times. The three grain reads run
+// concurrently.
+api.MapGet("/cluster/live", async (HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();
 
     var inventory = grains.GetGrain<IActivationInventoryGrain>(0);
     // Idempotent: ensures the polling timer is running before we read.
     await inventory.Start();
-    return Results.Ok(await inventory.GetSnapshot());
-});
 
-// The most recent grain-to-grain calls observed across the cluster.
-api.MapGet("/cluster/calls", async (HttpRequest req, IGrainFactory grains) =>
-{
-    if (!PresenterOk(req)) return Results.Unauthorized();
+    var activationsTask = inventory.GetSnapshot();
+    var callsTask = grains.GetGrain<IClusterCallRecorderGrain>(0).GetRecent();
+    var tracingTask = grains.GetGrain<IClusterTraceControlGrain>(0).GetState();
+    await Task.WhenAll(activationsTask, callsTask, tracingTask);
 
-    var recorder = grains.GetGrain<IClusterCallRecorderGrain>(0);
-    return Results.Ok(await recorder.GetRecent());
+    return Results.Ok(new
+    {
+        activations = await activationsTask,
+        calls = await callsTask,
+        tracing = new { enabled = (await tracingTask).Enabled }
+    });
 });
 
 // Cluster-wide call-tracing toggle. Disabling it makes the filter stop recording
 // (a local volatile read per call) and the reporter stop flushing; the change
-// propagates to every silo within the ~100ms poll interval.
-api.MapGet("/cluster/tracing", async (HttpRequest req, IGrainFactory grains) =>
-{
-    if (!PresenterOk(req)) return Results.Unauthorized();
-
-    var state = await grains.GetGrain<IClusterTraceControlGrain>(0).GetState();
-    return Results.Ok(new { enabled = state.Enabled });
-});
-
+// propagates to every silo within the ~100ms poll interval. The current value is
+// surfaced via /cluster/live above.
 api.MapPost("/cluster/tracing", async (TraceToggleRequest body, HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();

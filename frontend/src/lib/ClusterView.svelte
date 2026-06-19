@@ -3,10 +3,10 @@
   import { sessionHeaders } from '$lib/session';
 
   // Live visualization of the Orleans cluster: which grains are active, on which
-  // silo, and the grain-to-grain calls flowing between them. Data comes from two
-  // debug endpoints that are polled every 500ms; observed calls are then replayed
-  // as animated lines, slightly staggered so a burst plays out instead of
-  // flashing all at once.
+  // silo, and the grain-to-grain calls flowing between them. Data comes from the
+  // /api/cluster/live debug endpoint, polled every 500ms; observed calls are then
+  // replayed as animated lines, slightly staggered so a burst plays out instead
+  // of flashing all at once.
 
   let { password }: { password: string } = $props();
 
@@ -252,16 +252,13 @@
 
   async function tick() {
     try {
-      const [aRes, cRes, tRes] = await Promise.all([
-        fetch('/api/cluster/activations', { headers: headers() }),
-        fetch('/api/cluster/calls', { headers: headers() }),
-        fetch('/api/cluster/tracing', { headers: headers() })
-      ]);
-      if (!aRes.ok || !cRes.ok || !tRes.ok) throw new Error('Cluster activity unavailable');
-      activations = await aRes.json();
-      ingestCalls(await cRes.json());
+      const res = await fetch('/api/cluster/live', { headers: headers() });
+      if (!res.ok) throw new Error('Cluster activity unavailable');
+      const data = await res.json();
+      activations = data.activations;
+      ingestCalls(data.calls);
       // Reflect the cluster-wide toggle (another presenter may have flipped it).
-      tracingEnabled = (await tRes.json()).enabled;
+      tracingEnabled = data.tracing.enabled;
       error = null;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
