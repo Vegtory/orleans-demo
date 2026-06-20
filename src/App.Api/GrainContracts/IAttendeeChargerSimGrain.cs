@@ -1,3 +1,5 @@
+using Orleans.Concurrency;
+
 namespace App.Api.GrainContracts;
 
 /// <summary>
@@ -18,6 +20,16 @@ public interface IAttendeeChargerSimGrain : IGrainWithStringKey
 
     /// <summary>Idempotently records the attendee's display name and registers them with the action grain.</summary>
     Task Register(string displayName);
+
+    /// <summary>
+    /// Pushes the action's active/inactive state into this grain's in-memory cache.
+    /// The action grain calls this on activate/deactivate so <c>EnsureActive</c> reads
+    /// a local flag instead of calling back into the (single, hot) action grain on
+    /// every command. <see cref="AlwaysInterleaveAttribute"/> so the push isn't queued
+    /// behind in-flight work.
+    /// </summary>
+    [AlwaysInterleave]
+    Task SetActive(bool active);
 
     /// <summary>
     /// Requests up to <paramref name="amount"/> more chargers (capped so the live

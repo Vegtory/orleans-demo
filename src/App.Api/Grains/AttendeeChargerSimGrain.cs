@@ -57,6 +57,13 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
     private string _attendeeId = "";
     private IGrainTimer? _worker;
 
+    /// <summary>
+    /// Cached copy of the action's active flag. Pulled once on activation and kept
+    /// fresh by the action grain's push (see <see cref="SetActive"/>), so the
+    /// <see cref="EnsureActive"/> gate never calls back into the hot action grain.
+    /// </summary>
+    private bool _active;
+
     public AttendeeChargerSimGrain(
         [PersistentState("attendeeChargerSim", "store")] IPersistentState<AttendeeChargerSimState> state)
     {
@@ -79,6 +86,12 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
             return;
         }
 
+        // Pull the action's active flag once so the gate is correct even if this
+        // grain activated after the action went live (or after a silo restart). From
+        // here on it's kept fresh by the action grain's push. One cold call per
+        // activation, replacing an IsActive() call on every command.
+        _active = await Action.IsActive();
+
         // If work was outstanding when the grain last deactivated (or the silo
         // restarted), pick it back up. The grain reactivates as soon as the UI's
         // summary poll touches it, so the worker resumes on its own.
@@ -99,6 +112,12 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         await Action.RegisterAttendee(_attendeeId);
     }
 
+    public Task SetActive(bool active)
+    {
+        _active = active;
+        return Task.CompletedTask;
+    }
+
     public async Task Kill()
     {
         if (_state.State.Killed) return;
@@ -110,7 +129,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
     public async Task<int> CreateChargers(int amount)
     {
         if (await HandleIfKilled()) return _state.State.Count;
-        await EnsureActive();
+        EnsureActive();
         if (await Action.IsKillSwitchEnabled())
             throw new InvalidOperationException("Kill switch is engaged.");
 
@@ -150,7 +169,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
     public async Task SendBatchCommand(BatchChargerCommandType command, int amount)
     {
         if (await HandleIfKilled()) return;
-        await EnsureActive();
+        EnsureActive();
 
         var take = amount <= 0 ? IAttendeeChargerSimGrain.DefaultBatchSize : amount;
         await QueueCommand(command, take);
@@ -162,7 +181,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
     public async Task<ChargerSnapshot?> CommandCharger(string chargerId, SingleChargerCommandType command)
     {
         if (await HandleIfKilled()) return null;
-        await EnsureActive();
+        EnsureActive();
 
         var charger = ResolveCharger(chargerId);
         if (charger is null)
@@ -392,9 +411,11 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         DeactivateOnIdle();
     }
 
-    private async Task EnsureActive()
+    // Reads the locally cached active flag (kept fresh by the action grain's push),
+    // so the common command path never calls back into the hot action grain.
+    private void EnsureActive()
     {
-        if (!await Action.IsActive())
+        if (!_active)
         {
             throw new InvalidOperationException("ChargerSim is not active.");
         }

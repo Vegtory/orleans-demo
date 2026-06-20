@@ -12,6 +12,14 @@ internal sealed class AttendeeChargerAggregateState
     public Dictionary<string, ChargerAggregateContribution> Contributions { get; } = new();
 
     public ChargerFleetSummary Summary { get; set; } = new();
+
+    /// <summary>
+    /// Cached copy of the action's kill-switch flag. Pushed by the action grain on
+    /// toggle (see <see cref="AttendeeChargerAggregateGrain.SetKillSwitch"/>) and
+    /// pulled once on activation, so the hot per-contribution path never calls back
+    /// into the action grain.
+    /// </summary>
+    public bool KillSwitchEnabled { get; set; }
 }
 
 /// <summary>
@@ -31,7 +39,7 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
     private readonly AttendeeChargerAggregateState _state = new();
     private string _actionId = "";
 
-    public override Task OnActivateAsync(CancellationToken cancellationToken)
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         // Key: "action-{actionId}/attendee-{attendeeId}/aggregate".
         var parts = this.GetPrimaryKeyString().Split('/');
@@ -44,10 +52,17 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
             _state.Summary.AttendeeId = parts[1]["attendee-".Length..];
         }
 
-        return base.OnActivateAsync(cancellationToken);
+        await base.OnActivateAsync(cancellationToken);
+
+        // Pull the current kill-switch flag once, so we start in sync with the action
+        // grain even if this aggregate activated after a toggle (or after a silo
+        // restart). From here on the flag is kept fresh by the action grain's push.
+        // One cold call per activation, vs the thousands of hot per-contribution
+        // calls this replaces.
+        _state.KillSwitchEnabled = await Action.IsKillSwitchEnabled();
     }
 
-    public async Task<ChargerFleetSummary> UpsertContribution(ChargerAggregateContribution contribution)
+    public Task<ChargerFleetSummary> UpsertContribution(ChargerAggregateContribution contribution)
     {
         var summary = _state.Summary;
 
@@ -56,16 +71,18 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
             // Ignore duplicate or out-of-order updates.
             if (contribution.Version <= previous.Version)
             {
-                return summary;
+                return Task.FromResult(summary);
             }
 
             Apply(summary, previous, -1);
         }
 
         // If the kill switch is on and this charger is still alive, kill it now.
-        // Fire-and-forget: the charger will publish its own Killed contribution
-        // once Kill() completes, which will update the summary on the next call.
-        if (contribution.State != ChargerSimState.Killed && await Action.IsKillSwitchEnabled())
+        // The flag is read from the local cache (pushed by the action grain), so this
+        // hot path never calls back into the single action grain. Fire-and-forget:
+        // the charger publishes its own Killed contribution once Kill() completes,
+        // which updates the summary on the next call.
+        if (contribution.State != ChargerSimState.Killed && _state.KillSwitchEnabled)
         {
             var number = ChargerSimKeys.NumberFromDisplayId(contribution.ChargerId);
             if (number > 0)
@@ -84,10 +101,16 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
             summary.LastUpdatedAt = contribution.UpdatedAt;
         }
 
-        return summary;
+        return Task.FromResult(summary);
     }
 
     public Task<ChargerFleetSummary> GetSummary() => Task.FromResult(_state.Summary);
+
+    public Task SetKillSwitch(bool enabled)
+    {
+        _state.KillSwitchEnabled = enabled;
+        return Task.CompletedTask;
+    }
 
     public Task<IReadOnlyList<ChargerAggregateContribution>> GetRecentContributions(int take)
     {

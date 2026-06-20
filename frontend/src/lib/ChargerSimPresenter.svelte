@@ -34,7 +34,8 @@
 
   let dash = $state<Dashboard | null>(null);
   let error = $state<string | null>(null);
-  let busy = $state(false);
+  let loading = $state(true);
+  let togglePending = $state(false);
   let open = $state(false);
 
   const base = $derived(`/api/presenter/${encodeURIComponent(presenterKey)}/chargersim/${encodeURIComponent(actionId)}`);
@@ -47,12 +48,24 @@
 
   let poll: ReturnType<typeof setInterval> | null = null;
 
+  // Load the latest snapshot immediately on mount (and whenever the action id
+  // changes), so a page reload shows fresh data right away instead of staying
+  // blank until the panel is expanded. The dashboard is served from a cached
+  // snapshot on the backend, so this is a single cheap grain call.
+  $effect(() => {
+    actionId; // re-run if the action this component renders changes
+    refresh();
+  });
+
+  // Live-poll only while expanded — no point hammering the endpoint for a
+  // collapsed panel nobody is looking at.
   $effect(() => {
     if (open) {
       refresh();
       poll = setInterval(refresh, 1500);
-    } else {
-      if (poll) { clearInterval(poll); poll = null; }
+    } else if (poll) {
+      clearInterval(poll);
+      poll = null;
     }
     return () => { if (poll) { clearInterval(poll); poll = null; } };
   });
@@ -66,11 +79,19 @@
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
+    } finally {
+      loading = false;
     }
   }
 
+  // Optimistic toggle: flip the UI immediately, send the request in the
+  // background, and roll back if it fails. The backend kills chargers
+  // asynchronously and the next poll reconciles the authoritative flag.
   async function setKillSwitch(enabled: boolean) {
-    busy = true;
+    if (togglePending) return;
+    const previous = dash?.killSwitchEnabled ?? false;
+    if (dash) dash = { ...dash, killSwitchEnabled: enabled };
+    togglePending = true;
     error = null;
     try {
       const res = await fetch(`${base}/killswitch`, {
@@ -79,11 +100,13 @@
         body: JSON.stringify({ enabled })
       });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      await refresh();
+      // Reconcile sooner if we're not actively polling (panel collapsed).
+      if (!open) refresh();
     } catch (e) {
+      if (dash) dash = { ...dash, killSwitchEnabled: previous };
       error = e instanceof Error ? e.message : 'Unknown error';
     } finally {
-      busy = false;
+      togglePending = false;
     }
   }
 
@@ -106,6 +129,9 @@
 
   {#if open}
     <div class="border-t border-slate-700 px-6 pb-6 pt-5">
+      {#if loading && !dash}
+        <p class="py-4 text-sm text-slate-400">Loading latest fleet data…</p>
+      {/if}
       <div class="flex items-center justify-between">
         <p class="text-sm text-slate-400">Live fleet across all attendees</p>
         <!-- Kill switch toggle -->
@@ -113,9 +139,8 @@
           role="switch"
           aria-checked={dash?.killSwitchEnabled ?? false}
           aria-label="Kill switch"
-          disabled={busy}
           onclick={() => setKillSwitch(!(dash?.killSwitchEnabled ?? false))}
-          class="flex items-center gap-3 disabled:opacity-50"
+          class="flex items-center gap-3 transition-opacity {togglePending ? 'opacity-70' : ''}"
         >
           <span class="text-sm font-semibold {dash?.killSwitchEnabled ? 'text-red-300' : 'text-slate-400'}">Kill switch</span>
           <span
