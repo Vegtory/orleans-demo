@@ -36,14 +36,34 @@
     presenter: 'Presenter',
     attendee: 'Attendee',
     multiplechoice: 'Multiple choice',
-    presentation: 'Presentation'
+    presentation: 'Presentation',
+    charger: 'Sim charger',
+    attendeechargersim: 'Charger fleet',
+    attendeechargeraggregate: 'Fleet aggregate',
+    chargersimaction: 'Charger action'
   };
   const COLORS: Record<string, string> = {
     presenter: '#6366f1',
     attendee: '#10b981',
     multiplechoice: '#f59e0b',
-    presentation: '#ec4899'
+    presentation: '#ec4899',
+    charger: '#0ea5e9',
+    attendeechargersim: '#14b8a6',
+    attendeechargeraggregate: '#8b5cf6',
+    chargersimaction: '#f97316'
   };
+
+  // High-volume grain types hidden by default to keep the view readable.
+  // Click a legend entry to toggle visibility.
+  const DEFAULT_HIDDEN = new Set(['charger', 'attendeechargersim', 'attendeechargeraggregate', 'chargersimaction']);
+  let hiddenTypes = $state(new Set(DEFAULT_HIDDEN));
+
+  function toggleType(t: string) {
+    const next = new Set(hiddenTypes);
+    if (next.has(t)) next.delete(t);
+    else next.add(t);
+    hiddenTypes = next;
+  }
 
   function typeKey(grainId: string): string {
     return grainId.split('/')[0];
@@ -71,8 +91,10 @@
   let tracingEnabled = $state(true);
 
   let appGrains = $derived(activations.filter(isAppGrain));
+  // Only grains whose type the user hasn't hidden — used for the web layout.
+  let visibleGrains = $derived(appGrains.filter((g) => !hiddenTypes.has(typeKey(g.grainId))));
 
-  // Active-grain counts per type, most common first.
+  // Active-grain counts per type (all types, not just visible), most common first.
   let typeCounts = $derived.by(() => {
     const m = new Map<string, number>();
     for (const g of appGrains) {
@@ -127,7 +149,7 @@
 
   let layout = $derived.by(() => {
     const bySilo = new Map<string, ActiveGrain[]>();
-    for (const g of appGrains) {
+    for (const g of visibleGrains) {
       (bySilo.get(g.siloAddress) ?? bySilo.set(g.siloAddress, []).get(g.siloAddress)!).push(g);
     }
     const silos = [...bySilo.entries()];
@@ -370,18 +392,31 @@
       {appGrains.length} grain{appGrains.length === 1 ? '' : 's'} · {siloCount} silo{siloCount === 1
         ? ''
         : 's'}
+      {#if visibleGrains.length < appGrains.length}
+        <span class="text-slate-300">· {appGrains.length - visibleGrains.length} hidden</span>
+      {/if}
     </span>
   </div>
   {#if typeCounts.length > 0}
     <ul class="mt-4 space-y-2">
       {#each typeCounts as [type, count] (type)}
-        <li class="flex items-center gap-2.5">
-          <span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background:{color(type)}"></span>
+        {@const hidden = hiddenTypes.has(type)}
+        <li class="flex items-center gap-2.5 transition-opacity {hidden ? 'opacity-50' : ''}">
+          <span
+            class="h-2.5 w-2.5 shrink-0 rounded-full border"
+            style="background:{hidden ? 'transparent' : color(type)}; border-color:{color(type)}"
+          ></span>
           <span class="flex-1 text-sm font-medium text-slate-700">{label(type)}</span>
           <span
             class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600"
             >{count}</span
           >
+          <button
+            type="button"
+            onclick={() => toggleType(type)}
+            class="text-xs text-slate-400 hover:text-slate-600"
+            title={hidden ? `Show in cluster view` : `Hide from cluster view`}
+          >{hidden ? 'show' : 'hide'}</button>
         </li>
       {/each}
     </ul>
@@ -424,6 +459,7 @@
         role="img"
         aria-label="Grains arranged as a spiderweb per silo, with live communication lines"
       >
+
         <!-- Silo clusters: faint boundary + label -->
         {#each layout.hubs as hub (hub.silo)}
           <g>
@@ -485,7 +521,7 @@
         {/each}
 
         <!-- Grain dots, each labelled with its key -->
-        {#each appGrains as g (g.grainId)}
+        {#each visibleGrains as g (g.grainId)}
           {@const p = layout.positions.get(g.grainId)}
           {#if p}
             {@const k = keyPart(g.grainId)}
@@ -518,13 +554,25 @@
       </svg>
     </div>
 
-    <!-- Legend -->
+    <!-- Legend — click any entry to hide/show that grain type -->
     <div class="mt-4 flex flex-wrap gap-x-4 gap-y-1.5">
-      {#each typeCounts as [type] (type)}
-        <span class="inline-flex items-center gap-1.5 text-xs text-slate-500">
-          <span class="h-2 w-2 rounded-full" style="background:{color(type)}"></span>
+      {#each typeCounts as [type, count] (type)}
+        {@const hidden = hiddenTypes.has(type)}
+        <button
+          type="button"
+          onclick={() => toggleType(type)}
+          class="inline-flex items-center gap-1.5 text-xs transition-opacity {hidden
+            ? 'opacity-40 hover:opacity-70'
+            : 'text-slate-500 hover:opacity-80'}"
+          title={hidden ? `Show ${label(type)} grains` : `Hide ${label(type)} grains`}
+        >
+          <span
+            class="h-2 w-2 shrink-0 rounded-full border"
+            style="background:{hidden ? 'transparent' : color(type)}; border-color:{color(type)}"
+          ></span>
           {label(type)}
-        </span>
+          <span class="tabular-nums text-slate-400">· {count}</span>
+        </button>
       {/each}
     </div>
   {:else}
