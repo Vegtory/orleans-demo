@@ -12,7 +12,16 @@ public interface IChargerSimActionGrain : IGrainWithStringKey
 {
     Task Activate();
     Task Deactivate();
+
+    // Read-only, non-awaiting flag reads. Marked AlwaysInterleave so they can run
+    // re-entrantly: an attendee/aggregate grain pulls these from its OnActivateAsync,
+    // and that activation can happen while this grain is mid-await inside the
+    // dashboard fan-out (GetDashboard -> GetAllAttendeeSummaries -> ... -> activate).
+    // Without interleaving, that re-entrant call would deadlock behind the fan-out.
+    [AlwaysInterleave]
     Task<bool> IsActive();
+
+    [AlwaysInterleave]
     Task<bool> IsKillSwitchEnabled();
 
     Task RegisterAttendee(string attendeeId);

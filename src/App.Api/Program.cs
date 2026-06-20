@@ -370,6 +370,11 @@ api.MapPost("/chargersim/{actionId}/attendee/{key}/register", async (string acti
 api.MapGet("/chargersim/{actionId}/attendee/{key}/summary", async (string actionId, string key, IGrainFactory grains) =>
     Results.Ok(await ChargerSimAttendee(grains, actionId, key).GetSummary()));
 
+// Outstanding background work (chargers still being created, commands still queued),
+// so the attendee UI can show a "working…" indicator while the worker drains.
+api.MapGet("/chargersim/{actionId}/attendee/{key}/work", async (string actionId, string key, IGrainFactory grains) =>
+    Results.Ok(await ChargerSimAttendee(grains, actionId, key).GetWorkStatus()));
+
 api.MapPost("/chargersim/{actionId}/attendee/{key}/create", async (string actionId, string key, AmountRequest body, IGrainFactory grains) =>
 {
     try

@@ -31,9 +31,16 @@
     version: number;
   }
 
+  interface WorkStatus {
+    pendingChargers: number;
+    queuedCommands: number;
+  }
+
   const STATE_LABELS = ['No session', 'Active session', 'Paused', 'Killed'];
 
   let summary = $state<FleetSummary | null>(null);
+  let work = $state<WorkStatus>({ pendingChargers: 0, queuedCommands: 0 });
+  const working = $derived(work.pendingChargers > 0 || work.queuedCommands > 0);
   let opened = $state<Charger | null>(null);
   let openId = $state('');
   let error = $state<string | null>(null);
@@ -68,8 +75,12 @@
 
   async function refresh() {
     try {
-      const res = await fetch(`${base}/summary`, { headers: sessionHeaders() });
-      if (res.ok) summary = await res.json();
+      const [sumRes, workRes] = await Promise.all([
+        fetch(`${base}/summary`, { headers: sessionHeaders() }),
+        fetch(`${base}/work`, { headers: sessionHeaders() })
+      ]);
+      if (sumRes.ok) summary = await sumRes.json();
+      if (workRes.ok) work = await workRes.json();
       if (opened) await reloadOpened();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
@@ -154,11 +165,19 @@
 <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
   <div class="flex items-center justify-between">
     <div>
-      <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
-        <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500"></span> LIVE
-      </span>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
+          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500"></span> LIVE
+        </span>
+        {#if working}
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+            <span class="h-1.5 w-1.5 animate-spin rounded-full border border-indigo-500 border-t-transparent"></span>
+            Working…{work.pendingChargers > 0 ? ` ${fmt(work.pendingChargers, 0)} to create` : ''}{work.queuedCommands > 0 ? ` · ${work.queuedCommands} queued` : ''}
+          </span>
+        {/if}
+      </div>
       <h2 class="mt-2 text-xl font-bold tracking-tight">⚡ ChargerSim control room</h2>
-      <p class="text-sm text-slate-500">Spin up your own fleet of simulated chargers. Each one is its own Orleans grain.</p>
+      <p class="text-sm text-slate-500">Request chargers and commands — a background worker creates and runs them. Each charger is its own Orleans grain.</p>
     </div>
   </div>
 
@@ -182,7 +201,7 @@
 
   <!-- Create -->
   <div class="mt-5">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Create chargers (max 5,000)</h3>
+    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Request chargers (max 5,000, created in the background)</h3>
     <div class="mt-2 flex flex-wrap gap-2">
       <button disabled={busy} onclick={() => create(100)} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">+100</button>
     </div>
@@ -190,7 +209,7 @@
 
   <!-- Batch commands -->
   <div class="mt-5">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Batch commands (100 chargers)</h3>
+    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Batch commands (100 chargers, queued &amp; run in the background)</h3>
     <div class="mt-2 flex flex-wrap gap-2">
       <button disabled={busy} onclick={() => batch('StartSessions')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Start sessions</button>
       <button disabled={busy} onclick={() => batch('StopCharging')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop charging</button>

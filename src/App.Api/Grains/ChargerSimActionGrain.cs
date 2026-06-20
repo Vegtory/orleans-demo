@@ -25,6 +25,13 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
 {
     private const int MaxEvents = 25;
 
+    // The presenter dashboard is served from a cached snapshot refreshed on this
+    // interval, so each presenter poll is a single grain call instead of a 2N+1
+    // fan-out to every attendee + aggregate grain. If no presenter has polled within
+    // the idle timeout, the refresh timer stops so this grain can deactivate.
+    private static readonly TimeSpan DashboardRefreshInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DashboardIdleTimeout = TimeSpan.FromSeconds(15);
+
     private readonly IPersistentState<ChargerSimActionState> _state;
 
     // The recent-events ticker is live, throwaway UI data, so it is kept in
@@ -34,6 +41,12 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
     // run to completion in a single turn and cannot race on the storage etag.
     private readonly LinkedList<string> _recentEvents = new();
     private string _actionId = "";
+
+    // Cached dashboard fan-out result (summaries only — the live event ticker is
+    // overlaid at read time). Refreshed by _dashboardTimer; null until first built.
+    private IGrainTimer? _dashboardTimer;
+    private ChargerSimDashboard? _cachedDashboard;
+    private DateTimeOffset _lastDashboardRequest;
 
     public ChargerSimActionGrain(
         [PersistentState("chargerSimAction", "store")] IPersistentState<ChargerSimActionState> state)
@@ -53,12 +66,14 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
     {
         _state.State.Active = true;
         await _state.WriteStateAsync();
+        await BroadcastActive(true);
     }
 
     public async Task Deactivate()
     {
         _state.State.Active = false;
         await _state.WriteStateAsync();
+        await BroadcastActive(false);
     }
 
     public Task<bool> IsActive() => Task.FromResult(_state.State.Active);
@@ -94,13 +109,70 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
 
     public async Task<ChargerSimDashboard> GetDashboard()
     {
+        _lastDashboardRequest = DateTimeOffset.UtcNow;
+        EnsureDashboardTimer();
+
+        // Serve the cached snapshot. Build it inline on the very first call so the
+        // first paint (e.g. a presenter reload) shows real data instead of empty;
+        // every subsequent poll is served from cache with no fan-out.
+        if (_cachedDashboard is null)
+        {
+            await RefreshDashboard();
+        }
+
+        // Overlay the live event ticker so it never lags the (up to 1s stale)
+        // summaries. Cheap: an array copy, no grain calls.
+        return _cachedDashboard! with { RecentEvents = _recentEvents.ToArray() };
+    }
+
+    // Recomputes the cached dashboard by fanning out to the attendee aggregates.
+    // Runs on _dashboardTimer (and inline on the first GetDashboard call). The only
+    // shared state it writes is the _cachedDashboard reference, assigned after its
+    // awaits — it never touches persisted state — so it is safe to interleave.
+    private async Task RefreshDashboard()
+    {
+        // Stop refreshing (and let the grain deactivate) once no presenter has polled
+        // for a while. The next GetDashboard re-arms the timer.
+        if (_cachedDashboard is not null
+            && DateTimeOffset.UtcNow - _lastDashboardRequest > DashboardIdleTimeout)
+        {
+            StopDashboardTimer();
+            return;
+        }
+
         var summaries = await GetAllAttendeeSummaries();
         var global = Combine(summaries);
         global.AttendeeName = "All attendees";
 
-        // Newest first.
-        var events = _recentEvents.ToArray();
-        return new ChargerSimDashboard(_state.State.Active, global, summaries.ToArray(), events, _state.State.KillSwitchEnabled);
+        _cachedDashboard = new ChargerSimDashboard(
+            _state.State.Active,
+            global,
+            summaries.ToArray(),
+            _recentEvents.ToArray(),
+            _state.State.KillSwitchEnabled);
+    }
+
+    private void EnsureDashboardTimer()
+    {
+        _dashboardTimer ??= this.RegisterGrainTimer(
+            callback: static (self, _) => self.RefreshDashboard(),
+            state: this,
+            options: new GrainTimerCreationOptions
+            {
+                DueTime = DashboardRefreshInterval,
+                Period = DashboardRefreshInterval,
+                // Read-only fan-out; interleave so it doesn't serialize behind other
+                // turns on this hot grain. KeepAlive is off so a UI cache never pins
+                // the grain in memory — the idle timeout lets it deactivate.
+                Interleave = true,
+                KeepAlive = false
+            });
+    }
+
+    private void StopDashboardTimer()
+    {
+        _dashboardTimer?.Dispose();
+        _dashboardTimer = null;
     }
 
     public async Task KillAllChargers()
@@ -139,12 +211,19 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
     {
         _state.State.KillSwitchEnabled = enabled;
         await _state.WriteStateAsync();
+
+        // Push the new flag to every registered aggregate BEFORE the sweep, so the
+        // hot per-contribution path reads a local cache instead of calling back into
+        // this grain, and so contributions arriving during the sweep already see the
+        // new value. Bounded by attendee count (tens), not charger count.
+        await BroadcastToAggregates(a => a.SetKillSwitch(enabled));
+
         if (enabled)
         {
             await RecordEvent("Kill switch engaged");
-            // Fire-and-forget: the state is already persisted so the aggregate grain
-            // will enforce the switch on every charger tick. The sweep below catches
-            // grains that are currently alive without waiting for a tick.
+            // Fire-and-forget: the state is already persisted and pushed, so the
+            // aggregate grains will enforce the switch on every charger tick. The
+            // sweep below catches grains that are currently alive without waiting.
             _ = KillAllChargers();
         }
         else
@@ -155,9 +234,16 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
 
     public async Task Delete()
     {
+        StopDashboardTimer();
         await KillAllChargers();
         await _state.ClearStateAsync();
         DeactivateOnIdle();
+    }
+
+    public override Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+    {
+        StopDashboardTimer();
+        return base.OnDeactivateAsync(reason, cancellationToken);
     }
 
     public Task RecordEvent(string message)
@@ -170,6 +256,28 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
         }
 
         return Task.CompletedTask;
+    }
+
+    // Pushes the active flag to every registered attendee controller grain so their
+    // EnsureActive() gate reads a local cache instead of calling back into this grain
+    // on every command. Cold path: once per presenter activate/deactivate.
+    private Task BroadcastActive(bool active)
+    {
+        var pushes = _state.State.Attendees
+            .Select(id => GrainFactory
+                .GetGrain<IAttendeeChargerSimGrain>(ChargerSimKeys.Attendee(_actionId, id))
+                .SetActive(active));
+        return Task.WhenAll(pushes);
+    }
+
+    // Fans a call out to every registered attendee's aggregate grain. Used to push
+    // the kill-switch flag down so the hot contribution path never pulls it back up.
+    private Task BroadcastToAggregates(Func<IAttendeeChargerAggregateGrain, Task> call)
+    {
+        var pushes = _state.State.Attendees
+            .Select(id => call(GrainFactory
+                .GetGrain<IAttendeeChargerAggregateGrain>(ChargerSimKeys.Aggregate(_actionId, id))));
+        return Task.WhenAll(pushes);
     }
 
     // Rolls per-attendee summaries into a single global summary. This reads N

@@ -28,6 +28,25 @@ public sealed class ChargerSimTests
         _cluster.GrainFactory.GetGrain<IAttendeeChargerAggregateGrain>(
             ChargerSimKeys.Aggregate(Guid.NewGuid().ToString("N"), "alice"));
 
+    // Creation and batch commands are now carried out by a background worker, so
+    // tests enqueue the request and then wait for the worker to drain it before
+    // asserting on the resulting fleet.
+    private static async Task Drain(IAttendeeChargerSimGrain attendee)
+    {
+        for (var i = 0; i < 400; i++)
+        {
+            var status = await attendee.GetWorkStatus();
+            if (status.PendingChargers == 0 && status.QueuedCommands == 0)
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("ChargerSim background work did not drain in time.");
+    }
+
     [Fact]
     public async Task Aggregate_tracks_absolute_contributions_into_summary()
     {
@@ -116,8 +135,11 @@ public sealed class ChargerSimTests
             ChargerSimKeys.Attendee(actionId, "alice-2"));
         await attendee.Register("Alice");
 
+        // The request is accepted immediately and projects the eventual total.
         var total = await attendee.CreateChargers(25);
         Assert.Equal(25, total);
+
+        await Drain(attendee);
 
         var summary = await attendee.GetSummary();
         Assert.Equal(25, summary.TotalChargers);
@@ -139,8 +161,11 @@ public sealed class ChargerSimTests
         var attendee = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
             ChargerSimKeys.Attendee(actionId, "alice-cap"));
 
+        // Each request projects the running live+pending total, capped at MaxChargers.
         Assert.Equal(50, await attendee.CreateChargers(50));
         Assert.Equal(80, await attendee.CreateChargers(30)); // accumulates
+
+        await Drain(attendee);
         Assert.Equal(80, (await attendee.GetChargerIds()).Count);
 
         // The cap is fixed regardless of how many are requested. (We avoid
@@ -148,6 +173,7 @@ public sealed class ChargerSimTests
         // but the clamp is exercised by requesting more than the cap and checking
         // the returned total is bounded by it.)
         Assert.True(IAttendeeChargerSimGrain.MaxChargers >= await attendee.CreateChargers(1));
+        await Drain(attendee);
     }
 
     [Fact]
@@ -161,8 +187,10 @@ public sealed class ChargerSimTests
             ChargerSimKeys.Attendee(actionId, "alice-kill"));
         await attendee.Register("Alice");
         await attendee.CreateChargers(10);
+        await Drain(attendee);
 
         await attendee.KillMyChargers();
+        await Drain(attendee);
 
         var summary = await attendee.GetSummary();
         Assert.Equal(10, summary.TotalChargers);
@@ -181,6 +209,7 @@ public sealed class ChargerSimTests
             ChargerSimKeys.Attendee(actionId, "alice-single"));
         await attendee.Register("Alice");
         await attendee.CreateChargers(3);
+        await Drain(attendee);
 
         var snapshot = await attendee.CommandCharger("CP-000001", SingleChargerCommandType.StartSession);
 
@@ -201,12 +230,15 @@ public sealed class ChargerSimTests
             ChargerSimKeys.Attendee(actionId, "alice-batch"));
         await attendee.Register("Alice");
         await attendee.CreateChargers(40);
+        await Drain(attendee);
 
         await attendee.SendBatchCommand(BatchChargerCommandType.StartSessions, 40);
+        await Drain(attendee);
         var afterStart = await attendee.GetSummary();
         Assert.Equal(40, afterStart.ActiveSessionCount);
 
         await attendee.SendBatchCommand(BatchChargerCommandType.StopSessions, 40);
+        await Drain(attendee);
         var afterStop = await attendee.GetSummary();
         Assert.Equal(40, afterStop.NoSessionCount);
         Assert.Equal(0, afterStop.ActiveSessionCount);
@@ -227,6 +259,8 @@ public sealed class ChargerSimTests
         await bob.Register("Bob");
         await alice.CreateChargers(5);
         await bob.CreateChargers(7);
+        await Drain(alice);
+        await Drain(bob);
 
         await action.KillAllChargers();
 
@@ -252,6 +286,7 @@ public sealed class ChargerSimTests
         var carol = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
             ChargerSimKeys.Attendee(actionId, "carol-unreg"));
         await carol.CreateChargers(6);
+        await Drain(carol);
 
         await action.KillAllChargers();
 
@@ -271,15 +306,93 @@ public sealed class ChargerSimTests
             ChargerSimKeys.Attendee(actionId, "alice-recap"));
 
         await attendee.CreateChargers(20);
+        await Drain(attendee);
         await attendee.KillMyChargers();
+        await Drain(attendee);
 
         // 20 killed; the cap should now have full room again. Creating 30 more
         // must succeed (it would not if killed chargers still counted).
         await attendee.CreateChargers(30);
+        await Drain(attendee);
 
         var summary = await attendee.GetSummary();
         var live = summary.NoSessionCount + summary.ActiveSessionCount + summary.PausedWithSessionCount;
         Assert.Equal(30, live);
         Assert.Equal(20, summary.KilledCount);
+    }
+
+    [Fact]
+    public async Task Kill_switch_is_enforced_from_aggregate_cache_without_polling_the_action()
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        var action = _cluster.GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId));
+        await action.Activate();
+        await action.SetKillSwitch(true);
+
+        // A freshly-activated aggregate must pull the kill-switch flag on activation
+        // (the action grain has no registered attendees yet, so there was no push).
+        // The Contribution() helper uses attendee id "alice", so key the aggregate to
+        // match — UpsertContribution derives the charger key from the contribution.
+        var agg = _cluster.GrainFactory.GetGrain<IAttendeeChargerAggregateGrain>(
+            ChargerSimKeys.Aggregate(actionId, "alice"));
+
+        // A live charger publishes a contribution; the cached flag (not a call back to
+        // the action grain) must trigger a fire-and-forget kill of that charger.
+        await agg.UpsertContribution(Contribution("CP-000001", 1, ChargerSimState.ActiveSession, power: 11));
+
+        var charger = _cluster.GrainFactory.GetGrain<IChargerGrain>(
+            ChargerSimKeys.Charger(actionId, "alice", 1));
+
+        for (var i = 0; i < 200; i++)
+        {
+            if ((await charger.GetSnapshot()).Killed) return; // enforced — done
+            await Task.Delay(25);
+        }
+
+        Assert.Fail("charger was not killed by the cached kill switch");
+    }
+
+    [Fact]
+    public async Task Deactivate_pushes_inactive_state_and_blocks_further_commands()
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        var action = _cluster.GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId));
+        await action.Activate();
+
+        var attendee = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
+            ChargerSimKeys.Attendee(actionId, "alice-gate"));
+        await attendee.Register("Alice");
+        await attendee.CreateChargers(3); // accepted while active
+        await Drain(attendee);
+
+        // Deactivate pushes active=false into the attendee grain's cached flag.
+        await action.Deactivate();
+
+        // EnsureActive now reads the cached flag (no call back to the action grain)
+        // and rejects the command.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => attendee.SendBatchCommand(BatchChargerCommandType.StartSessions, 3));
+    }
+
+    [Fact]
+    public async Task Dashboard_fan_out_does_not_deadlock_when_it_activates_grains()
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        var action = _cluster.GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId));
+        await action.Activate();
+
+        // Register an attendee id directly so the action knows it, but its attendee +
+        // aggregate grains are NOT yet activated. The first dashboard build activates
+        // them mid-fan-out, and their OnActivateAsync calls IsActive()/
+        // IsKillSwitchEnabled() back into this (awaiting) action grain — a deadlock
+        // unless those reads are AlwaysInterleave.
+        await action.RegisterAttendee("ghost-attendee");
+
+        var dashboardTask = action.GetDashboard();
+        var first = await Task.WhenAny(dashboardTask, Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.True(first == dashboardTask, "GetDashboard deadlocked on re-entrant activation");
+
+        var dashboard = await dashboardTask;
+        Assert.True(dashboard.Active);
     }
 }

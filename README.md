@@ -64,6 +64,41 @@ and safe against duplicate or out-of-order updates. The presenter dashboard roll
 the per-attendee summaries up into a global view by reading the aggregate grains
 (one per attendee) — again, never the individual chargers.
 
+Charger **creation and batch commands are processed asynchronously in the
+background**. An attendee request doesn't fan out inline — it records intent on
+the `IAttendeeChargerSimGrain`: creation bumps a *pending charger count* and a
+command is appended to a *queue*. A grain timer (the background worker) then
+reconciles the fleet toward that intent, creating chargers in chunks and
+executing one queued command per tick, until both the pending count and the queue
+reach zero (at which point the worker stops so the grain can deactivate). This
+keeps every request snappy regardless of fleet size; the attendee UI polls
+`GetWorkStatus` to show how much work is still outstanding. Single-charger
+commands and fleet reads stay synchronous. The cap of 5,000 live chargers is
+enforced when a request is accepted (reserving room for work already queued), so
+rapid requests can never overshoot it.
+
+The `IChargerSimActionGrain` is a single, hot grain, so reads and writes are kept
+**off its critical path**:
+
+- **Dashboard is served from a cached snapshot.** Instead of fanning out to every
+  attendee + aggregate grain on each presenter poll (`2N+1` grain calls), the action
+  grain refreshes a `ChargerSimDashboard` snapshot on a ~1s background timer and
+  serves polls from that cache (the live event ticker is overlaid at read time). The
+  timer stops when no presenter has polled for a while, so the grain can deactivate.
+- **Kill-switch and active state are pushed, not pulled.** The per-contribution
+  hot path used to call `IsKillSwitchEnabled()` on the action grain for every charger
+  tick; now the action grain *pushes* the flag to each `AttendeeChargerAggregateGrain`
+  on toggle (and each aggregate pulls it once on activation), so `UpsertContribution`
+  reads a local cache. Likewise `Activate()`/`Deactivate()` push the active flag to
+  the attendee controller grains, so their `EnsureActive()` gate no longer calls back
+  into the action grain on every command. `IsActive()`/`IsKillSwitchEnabled()` are
+  `[AlwaysInterleave]` so those activation-time pulls can't deadlock against the
+  dashboard fan-out that triggers them.
+
+The presenter dashboard also **loads the latest snapshot immediately on mount**, so a
+page reload shows fresh data right away, and the kill-switch toggle is **optimistic**
+(it flips instantly and reconciles on the next poll).
+
 Grain key conventions:
 
 ```

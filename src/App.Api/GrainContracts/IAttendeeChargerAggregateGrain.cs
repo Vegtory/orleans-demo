@@ -1,5 +1,7 @@
 namespace App.Api.GrainContracts;
 
+using Orleans.Concurrency;
+
 /// <summary>
 /// One aggregate grain per attendee, keyed
 /// "action-{actionId}/attendee-{attendeeId}/aggregate". It stores the last known
@@ -25,6 +27,17 @@ public interface IAttendeeChargerAggregateGrain : IGrainWithStringKey
 
     /// <summary>A random charger id whose last contribution is in the given state, or null if none.</summary>
     Task<string?> GetRandomChargerInState(ChargerSimState state);
+
+    /// <summary>
+    /// Pushes the action's current kill-switch state into this aggregate's in-memory
+    /// cache. The action grain calls this on every toggle so the hot
+    /// <see cref="UpsertContribution"/> path reads a local flag instead of calling
+    /// back into the (single, hot) action grain on every charger contribution.
+    /// <see cref="AlwaysInterleaveAttribute"/> so the push lands promptly rather than
+    /// queueing behind a backlog of contributions.
+    /// </summary>
+    [AlwaysInterleave]
+    Task SetKillSwitch(bool enabled);
 
     Task Reset();
 }
