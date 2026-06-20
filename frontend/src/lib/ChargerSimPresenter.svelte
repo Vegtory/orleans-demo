@@ -68,12 +68,15 @@
     }
   }
 
-  async function killAll() {
-    if (!confirm('Kill ALL chargers for every attendee?')) return;
+  async function setKillSwitch(enabled: boolean) {
     busy = true;
     error = null;
     try {
-      const res = await fetch(`${base}/killall`, { method: 'POST', headers: authHeaders() });
+      const res = await fetch(`${base}/killswitch`, {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ enabled })
+      });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       await refresh();
     } catch (e) {
@@ -104,13 +107,25 @@
     <div class="border-t border-slate-700 px-6 pb-6 pt-5">
       <div class="flex items-center justify-between">
         <p class="text-sm text-slate-400">Live fleet across all attendees</p>
-        <button
-          disabled={busy}
-          onclick={killAll}
-          class="rounded-xl bg-red-600 px-5 py-3 text-base font-bold text-white shadow-lg ring-2 ring-red-400/40 transition hover:bg-red-500 disabled:opacity-50"
-        >
-          ☠ Kill all chargers
-        </button>
+        <!-- Kill switch toggle -->
+        <label class="flex cursor-pointer items-center gap-3 {busy ? 'opacity-50 pointer-events-none' : ''}">
+          <span class="text-sm font-semibold {dash?.killSwitchEnabled ? 'text-red-300' : 'text-slate-400'}">Kill switch</span>
+          <button
+            role="switch"
+            aria-checked={dash?.killSwitchEnabled ?? false}
+            disabled={busy}
+            onclick={() => setKillSwitch(!(dash?.killSwitchEnabled ?? false))}
+            class="relative inline-flex h-7 w-14 shrink-0 items-center rounded-full border-2 transition-colors duration-200
+              {dash?.killSwitchEnabled
+                ? 'border-red-500 bg-red-600'
+                : 'border-slate-600 bg-slate-700'}"
+          >
+            <span
+              class="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200
+                {dash?.killSwitchEnabled ? 'translate-x-7' : 'translate-x-1'}"
+            ></span>
+          </button>
+        </label>
       </div>
 
       <!-- Big global numbers -->

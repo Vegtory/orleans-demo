@@ -25,6 +25,12 @@ public interface IChargerSimActionGrain : IGrainWithStringKey
     /// <summary>Sends a kill command to every registered attendee's controller grain.</summary>
     Task KillAllChargers();
 
+    /// <summary>
+    /// Persists the kill-switch state. When enabled, immediately kills all live
+    /// charger grains and records the event. When disabled, clears the flag.
+    /// </summary>
+    Task SetKillSwitch(bool enabled);
+
     /// <summary>Kills all chargers then clears all persisted state for this action.</summary>
     Task Delete();
 
