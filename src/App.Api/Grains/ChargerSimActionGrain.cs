@@ -132,6 +132,13 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
         await RecordEvent($"Presenter killed all chargers ({chargerKeys.Count:N0})");
     }
 
+    public async Task Delete()
+    {
+        await KillAllChargers();
+        await _state.ClearStateAsync();
+        DeactivateOnIdle();
+    }
+
     public Task RecordEvent(string message)
     {
         // In-memory only and synchronous (no await): see _recentEvents.

@@ -14,4 +14,7 @@ public interface IMultipleChoiceGrain : IGrainWithStringKey
 
     Task<int?> GetAnswer(string attendeeKey);
     Task<ResultsView> GetResults();
+
+    /// <summary>Clears all persisted state for this action.</summary>
+    Task Delete();
 }

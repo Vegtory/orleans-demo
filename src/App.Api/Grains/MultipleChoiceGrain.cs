@@ -72,4 +72,10 @@ public sealed class MultipleChoiceGrain : Grain, IMultipleChoiceGrain
             counts,
             _state.State.Answers.Count));
     }
+
+    public async Task Delete()
+    {
+        await _state.ClearStateAsync();
+        DeactivateOnIdle();
+    }
 }

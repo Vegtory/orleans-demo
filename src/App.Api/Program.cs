@@ -265,6 +265,20 @@ api.MapGet("/presenter/{key}/actions/{actionId}/results", async (string key, str
     }
 });
 
+api.MapDelete("/presenter/{key}/actions/{actionId}", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    try
+    {
+        await grains.GetGrain<IPresenterGrain>(key).RemoveAction(actionId);
+        return Results.Ok(new { removed = true });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
 // --- Cluster activity (presenter-only, debug/demo visualization) -------------
 
 // Single poll endpoint backing the live cluster view: a snapshot of every active

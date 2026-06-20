@@ -25,6 +25,9 @@ public interface IChargerSimActionGrain : IGrainWithStringKey
     /// <summary>Sends a kill command to every registered attendee's controller grain.</summary>
     Task KillAllChargers();
 
+    /// <summary>Kills all chargers then clears all persisted state for this action.</summary>
+    Task Delete();
+
     /// <summary>
     /// Records a short, human-readable event message for the dashboard ticker.
     /// Marked <see cref="AlwaysInterleaveAttribute"/> so an attendee's controller

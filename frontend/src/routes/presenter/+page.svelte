@@ -202,6 +202,26 @@
     if (res.ok) results = await res.json();
   }
 
+  async function removeAction(actionId: string) {
+    if (!key) return;
+    if (!confirm('Remove this action? This will kill all its state and cannot be undone.')) return;
+    error = null;
+    busy = true;
+    try {
+      const res = await fetch(`/api/presenter/${encodeURIComponent(key)}/actions/${actionId}`, {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Request failed (${res.status})`);
+      if (selectedActionId === actionId) { selectedActionId = null; results = null; }
+      await refresh();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unknown error';
+    } finally {
+      busy = false;
+    }
+  }
+
   function signOut() {
     if (poll) clearInterval(poll);
     poll = null;
@@ -459,6 +479,12 @@
                   Results
                 </button>
               {/if}
+              <button
+                onclick={() => removeAction(a.id)}
+                disabled={busy}
+                aria-label="Remove action"
+                class="rounded-lg px-2 py-1.5 text-sm font-medium text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+              >✕</button>
             </li>
           {/each}
         </ul>
