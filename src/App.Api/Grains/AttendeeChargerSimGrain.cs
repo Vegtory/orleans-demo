@@ -57,7 +57,13 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
     {
         await EnsureActive();
 
-        var room = IAttendeeChargerSimGrain.MaxChargers - _state.State.Count;
+        // Killed chargers do not count toward the cap, so the room available is
+        // based on the number of currently live chargers (from the aggregate),
+        // not the total ever created. Charger numbers still increase monotonically
+        // so display ids stay unique.
+        var summary = await Aggregate.GetSummary();
+        var live = summary.NoSessionCount + summary.ActiveSessionCount + summary.PausedWithSessionCount;
+        var room = IAttendeeChargerSimGrain.MaxChargers - live;
         var toCreate = Math.Clamp(amount, 0, room);
         if (toCreate == 0)
         {
@@ -89,10 +95,14 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
     public async Task KillMyChargers()
     {
-        // The nuclear option: kill every charger we own. Kill is idempotent and
-        // each killed charger publishes its final Killed contribution.
-        await ForEachCharger(1, _state.State.Count, c => c.Kill());
-        await RecordEvent($"killed all {_state.State.Count:N0} chargers");
+        // Kill only the chargers that are still alive (selected from the aggregate
+        // snapshot) so we don't reactivate already-killed, deactivated grains.
+        // Each killed charger publishes its final Killed contribution.
+        var ids = await Aggregate.SelectChargerIds(ChargerSelectionFilter.Any, _state.State.Count);
+        var numbers = ids.Select(ChargerSimKeys.NumberFromDisplayId).Where(n => n > 0).ToList();
+
+        await ForEachCharger(numbers, c => c.Kill());
+        await RecordEvent($"killed all {numbers.Count:N0} chargers");
     }
 
     public async Task SendBatchCommand(BatchChargerCommandType command, int amount)

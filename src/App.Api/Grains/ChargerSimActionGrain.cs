@@ -1,4 +1,5 @@
 using App.Api.GrainContracts;
+using Orleans.Runtime;
 
 namespace App.Api.Grains;
 
@@ -101,14 +102,34 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
 
     public async Task KillAllChargers()
     {
-        var tasks = _state.State.Attendees
-            .Select(id => GrainFactory
-                .GetGrain<IAttendeeChargerSimGrain>(ChargerSimKeys.Attendee(_actionId, id))
-                .KillMyChargers())
+        // Search the whole cluster for every live charger grain belonging to this
+        // action and kill it directly, rather than trusting a registration list
+        // (which can miss fleets created without registering, or whose controller
+        // grain has since deactivated). Killed chargers deactivate, so they fall
+        // out of these statistics — repeated presses only ever target chargers
+        // that are still alive.
+        var management = GrainFactory.GetGrain<IManagementGrain>(0);
+        var stats = await management.GetDetailedGrainStatistics();
+
+        var prefix = ChargerSimKeys.Action(_actionId) + "/";
+        var chargerKeys = stats
+            .Select(s => s.GrainId.Key.ToString() ?? string.Empty)
+            .Where(key => key.StartsWith(prefix, StringComparison.Ordinal)
+                && key.Contains("/charger-", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        await Task.WhenAll(tasks);
-        await RecordEvent("Presenter killed all chargers");
+        const int chunk = 500;
+        for (var i = 0; i < chargerKeys.Count; i += chunk)
+        {
+            var tasks = chargerKeys
+                .Skip(i)
+                .Take(chunk)
+                .Select(key => GrainFactory.GetGrain<IChargerGrain>(key).Kill());
+            await Task.WhenAll(tasks);
+        }
+
+        await RecordEvent($"Presenter killed all chargers ({chargerKeys.Count:N0})");
     }
 
     public Task RecordEvent(string message)
