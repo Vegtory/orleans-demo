@@ -19,6 +19,13 @@ public interface IAttendeeChargerSimGrain : IGrainWithStringKey
 
     Task KillMyChargers();
 
+    /// <summary>
+    /// Marks this sim as killed, then unregisters any reminders, wipes persisted
+    /// state, and schedules the grain for deactivation. Subsequent calls to any
+    /// method short-circuit through the same teardown path.
+    /// </summary>
+    Task Kill();
+
     Task SendBatchCommand(BatchChargerCommandType command, int amount);
 
     /// <summary>Validates ownership + active, runs a command against one charger, and returns its fresh snapshot.</summary>
