@@ -31,6 +31,8 @@ export interface GrainInput {
   /** Silo this grain is currently activated on. Changing it makes the
    *  particle drift to the new silo card. */
   silo: string;
+  /** Short name drawn under the particle, e.g. "alice". Defaults to `id`. */
+  label?: string;
 }
 
 export interface CallInput {
@@ -70,6 +72,7 @@ interface GrainNode {
   id: string;
   type: string;
   silo: string;
+  label: string;
   x: number;
   y: number;
   vx: number;
@@ -165,6 +168,7 @@ export class GrainsVisualization {
         // particle drifts to the new card rather than jumping.
         node.type = g.type;
         node.silo = g.silo;
+        node.label = g.label ?? g.id;
         node.dead = false;
       }
     }
@@ -233,6 +237,7 @@ export class GrainsVisualization {
       id: g.id,
       type: g.type,
       silo: g.silo,
+      label: g.label ?? g.id,
       x: cx + (Math.random() - 0.5) * SPAWN_JITTER,
       y: cy + (Math.random() - 0.5) * SPAWN_JITTER,
       vx: 0,
@@ -515,6 +520,10 @@ export class GrainsVisualization {
   private drawGrains(ctx: CanvasRenderingContext2D, now: number): void {
     ctx.save();
     const pulse = (Math.sin(now / 220) + 1) / 2; // 0..1, shared pulse phase
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = '600 9px ui-sans-serif, system-ui, sans-serif';
+    ctx.lineJoin = 'round';
 
     for (const node of this.nodes.values()) {
       const color = this.opts.colorForType(node.type);
@@ -552,6 +561,17 @@ export class GrainsVisualization {
       ctx.beginPath();
       ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
       ctx.stroke();
+
+      // Name label under the particle. Drawn with a dark outline (stroke behind
+      // fill) so it stays legible over neighbouring grains and card fills.
+      const text = node.label.length > 14 ? `${node.label.slice(0, 13)}…` : node.label;
+      const ty = node.y + r + 3;
+      ctx.globalAlpha = a * 0.85;
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = this.opts.background;
+      ctx.strokeText(text, node.x, ty);
+      ctx.fillStyle = 'rgba(226, 232, 240, 0.92)';
+      ctx.fillText(text, node.x, ty);
     }
     ctx.restore();
   }

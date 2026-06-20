@@ -49,6 +49,7 @@
   };
 
   const typeKey = (grainId: string) => grainId.split('/')[0];
+  const keyPart = (grainId: string) => grainId.slice(grainId.indexOf('/') + 1);
   const colorForType = (type: string) => COLORS[type] ?? '#94a3b8';
   const labelForType = (type: string) => LABELS[type] ?? type;
   const isAppGrain = (g: ActiveGrain) =>
@@ -105,7 +106,8 @@
     const grains: GrainInput[] = app.map((g) => ({
       id: g.grainId,
       type: typeKey(g.grainId),
-      silo: g.siloAddress
+      silo: g.siloAddress,
+      label: keyPart(g.grainId)
     }));
     viz?.setGrains(grains);
 
