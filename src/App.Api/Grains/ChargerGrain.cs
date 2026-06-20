@@ -130,6 +130,12 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
         s.ActivePowerKw = Math.Max(1.0, s.ActivePowerKw * 0.6);
     });
 
+    public Task IncreasePowerUsage() => Mutate(s =>
+    {
+        if (s.Killed || s.State != ChargerSimState.ActiveSession) return;
+        s.ActivePowerKw = Math.Min(s.MaxPowerKw, Math.Max(1.0, s.ActivePowerKw * 1.4));
+    });
+
     public Task RandomChaos() => Mutate(ApplyChaos);
 
     public async Task Kill()

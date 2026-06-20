@@ -98,7 +98,7 @@
   }
 
   const create = (amount: number) => post('/create', { amount });
-  const batch = (command: string, amount = 1000) => post('/batch', { command, amount });
+  const batch = (command: string, amount = 100) => post('/batch', { command, amount });
   const killMine = () => post('/kill');
 
   async function openCharger(id: string) {
@@ -182,22 +182,21 @@
 
   <!-- Create -->
   <div class="mt-5">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Create chargers (max 10,000)</h3>
+    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Create chargers (max 5,000)</h3>
     <div class="mt-2 flex flex-wrap gap-2">
       <button disabled={busy} onclick={() => create(100)} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">+100</button>
-      <button disabled={busy} onclick={() => create(1000)} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">+1,000</button>
-      <button disabled={busy} onclick={() => create(10000)} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">+10,000</button>
     </div>
   </div>
 
   <!-- Batch commands -->
   <div class="mt-5">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Batch commands (1,000 chargers)</h3>
+    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Batch commands (100 chargers)</h3>
     <div class="mt-2 flex flex-wrap gap-2">
       <button disabled={busy} onclick={() => batch('StartSessions')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Start sessions</button>
       <button disabled={busy} onclick={() => batch('StopCharging')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop charging</button>
       <button disabled={busy} onclick={() => batch('StopSessions')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop sessions</button>
       <button disabled={busy} onclick={() => batch('LowerPowerUsage')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Lower power</button>
+      <button disabled={busy} onclick={() => batch('IncreasePowerUsage')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Increase power</button>
       <button disabled={busy} onclick={() => batch('RandomChaos')} class="rounded-lg border border-purple-300 px-3 py-1.5 text-sm font-medium text-purple-700 transition hover:bg-purple-50 disabled:opacity-50">Random chaos</button>
     </div>
   </div>
@@ -237,6 +236,7 @@
         <button disabled={busy} onclick={() => chargerCommand('ResumeCharging')} class="rounded-lg bg-green-500 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-green-600 disabled:opacity-50">Resume</button>
         <button disabled={busy} onclick={() => chargerCommand('StopSession')} class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">Stop</button>
         <button disabled={busy} onclick={() => chargerCommand('LowerPower')} class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">Lower power</button>
+        <button disabled={busy} onclick={() => chargerCommand('IncreasePower')} class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">Increase power</button>
         <button disabled={busy} onclick={() => chargerCommand('Kill')} class="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-red-700 disabled:opacity-50">Kill</button>
       </div>
     </div>

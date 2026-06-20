@@ -35,21 +35,21 @@ public sealed class AttendeeGrain : Grain, IAttendeeGrain
 
     public async Task<AttendeeView> GetState()
     {
-        var presentation = GrainFactory.GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey);
-        var focusId = await presentation.GetFocus();
+        var focus = await GrainFactory
+            .GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey)
+            .GetFocusInfo();
 
-        if (focusId is null)
+        if (focus is null)
         {
             return new AttendeeView(_state.State.Name, Focus: null, YourAnswer: null);
         }
 
-        var kind = await presentation.GetFocusKind();
-        if (kind == ActionKind.ChargerSim)
+        if (focus.Kind == ActionKind.ChargerSim)
         {
-            return new AttendeeView(_state.State.Name, Focus: null, YourAnswer: null, ChargerSimActionId: focusId);
+            return new AttendeeView(_state.State.Name, Focus: null, YourAnswer: null, ChargerSimActionId: focus.ActionId);
         }
 
-        var action = GrainFactory.GetGrain<IMultipleChoiceGrain>(focusId);
+        var action = GrainFactory.GetGrain<IMultipleChoiceGrain>(focus.ActionId);
         var question = await action.GetQuestion();
         var yourAnswer = await action.GetAnswer(this.GetPrimaryKeyString());
         return new AttendeeView(_state.State.Name, question, yourAnswer);
@@ -57,16 +57,17 @@ public sealed class AttendeeGrain : Grain, IAttendeeGrain
 
     public async Task<bool> Answer(int optionIndex)
     {
-        var presentation = GrainFactory.GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey);
-        var focusId = await presentation.GetFocus();
+        var focus = await GrainFactory
+            .GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey)
+            .GetFocusInfo();
 
         // Only multiple-choice actions accept an indexed answer.
-        if (focusId is null || await presentation.GetFocusKind() != ActionKind.MultipleChoice)
+        if (focus is not { Kind: ActionKind.MultipleChoice })
         {
             return false;
         }
 
-        await GrainFactory.GetGrain<IMultipleChoiceGrain>(focusId)
+        await GrainFactory.GetGrain<IMultipleChoiceGrain>(focus.ActionId)
             .Answer(this.GetPrimaryKeyString(), optionIndex);
         return true;
     }

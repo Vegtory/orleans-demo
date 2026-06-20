@@ -23,6 +23,7 @@ public interface IChargerGrain : IGrainWithStringKey
     Task ResumeCharging();
     Task StopSession();
     Task LowerPowerUsage();
+    Task IncreasePowerUsage();
     Task RandomChaos();
     Task Kill();
 }

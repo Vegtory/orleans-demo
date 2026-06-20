@@ -106,6 +106,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
             BatchChargerCommandType.StopCharging => (ChargerSelectionFilter.ActiveSessions, "stopped charging on"),
             BatchChargerCommandType.StopSessions => (ChargerSelectionFilter.ActiveOrPausedSessions, "stopped sessions on"),
             BatchChargerCommandType.LowerPowerUsage => (ChargerSelectionFilter.ActiveSessions, "lowered power usage on"),
+            BatchChargerCommandType.IncreasePowerUsage => (ChargerSelectionFilter.ActiveSessions, "increased power usage on"),
             BatchChargerCommandType.RandomChaos => (ChargerSelectionFilter.Any, "unleashed chaos on"),
             BatchChargerCommandType.Kill => (ChargerSelectionFilter.Any, "killed"),
             _ => (ChargerSelectionFilter.Any, "touched")
@@ -122,6 +123,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
             BatchChargerCommandType.StopCharging => c.StopCharging(),
             BatchChargerCommandType.StopSessions => c.StopSession(),
             BatchChargerCommandType.LowerPowerUsage => c.LowerPowerUsage(),
+            BatchChargerCommandType.IncreasePowerUsage => c.IncreasePowerUsage(),
             BatchChargerCommandType.RandomChaos => c.RandomChaos(),
             BatchChargerCommandType.Kill => c.Kill(),
             _ => Task.CompletedTask
@@ -147,6 +149,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
             SingleChargerCommandType.ResumeCharging => charger.ResumeCharging(),
             SingleChargerCommandType.StopSession => charger.StopSession(),
             SingleChargerCommandType.LowerPower => charger.LowerPowerUsage(),
+            SingleChargerCommandType.IncreasePower => charger.IncreasePowerUsage(),
             SingleChargerCommandType.Kill => charger.Kill(),
             _ => Task.CompletedTask
         };

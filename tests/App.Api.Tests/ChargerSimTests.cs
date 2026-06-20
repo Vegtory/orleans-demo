@@ -144,9 +144,9 @@ public sealed class ChargerSimTests
         Assert.Equal(80, (await attendee.GetChargerIds()).Count);
 
         // The cap is fixed regardless of how many are requested. (We avoid
-        // creating the full 10,000 grains here — that is a load demo, not a unit
-        // test — but the clamp is exercised by requesting more than the cap and
-        // checking the returned total is bounded by it.)
+        // creating the full fleet here — that is a load demo, not a unit test —
+        // but the clamp is exercised by requesting more than the cap and checking
+        // the returned total is bounded by it.)
         Assert.True(IAttendeeChargerSimGrain.MaxChargers >= await attendee.CreateChargers(1));
     }
 

@@ -50,7 +50,7 @@ exposed externally (only HTTP/8080).
 ### ChargerSim presentation action
 
 `ChargerSim` is a presenter-activated action that demonstrates Orleans at scale:
-every attendee runs their own fleet of up to **10,000 simulated EV chargers**,
+every attendee runs their own fleet of up to **5,000 simulated EV chargers**,
 and **each charger is its own grain with its own 30-second Orleans reminder**
 that drives a small randomized state machine (sessions start, charge, pause,
 resume and stop; sessions last ~3 minutes on average).
