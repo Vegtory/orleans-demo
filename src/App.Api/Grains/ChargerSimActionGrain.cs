@@ -11,6 +11,8 @@ public sealed class ChargerSimActionState
 
     /// <summary>Attendee ids (their attendee grain keys) that have joined this action.</summary>
     [Id(1)] public HashSet<string> Attendees { get; set; } = new();
+
+    [Id(2)] public bool KillSwitchEnabled { get; set; }
 }
 
 /// <summary>
@@ -97,7 +99,7 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
 
         // Newest first.
         var events = _recentEvents.ToArray();
-        return new ChargerSimDashboard(_state.State.Active, global, summaries.ToArray(), events);
+        return new ChargerSimDashboard(_state.State.Active, global, summaries.ToArray(), events, _state.State.KillSwitchEnabled);
     }
 
     public async Task KillAllChargers()
@@ -130,6 +132,28 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
         }
 
         await RecordEvent($"Presenter killed all chargers ({chargerKeys.Count:N0})");
+    }
+
+    public async Task SetKillSwitch(bool enabled)
+    {
+        _state.State.KillSwitchEnabled = enabled;
+        await _state.WriteStateAsync();
+        if (enabled)
+        {
+            await KillAllChargers();
+            await RecordEvent("Kill switch engaged");
+        }
+        else
+        {
+            await RecordEvent("Kill switch disengaged");
+        }
+    }
+
+    public async Task Delete()
+    {
+        await KillAllChargers();
+        await _state.ClearStateAsync();
+        DeactivateOnIdle();
     }
 
     public Task RecordEvent(string message)

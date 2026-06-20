@@ -96,6 +96,29 @@ public sealed class PresenterGrain : Grain, IPresenterGrain
         await _state.WriteStateAsync();
     }
 
+    public async Task RemoveAction(string actionId)
+    {
+        var action = _state.State.Actions.FirstOrDefault(a => a.Id == actionId)
+            ?? throw new InvalidOperationException("Unknown action id for this presenter.");
+
+        if (_state.State.ActiveActionId == actionId)
+        {
+            await ClearActive();
+        }
+
+        if (action.Kind == ActionKind.ChargerSim)
+        {
+            await GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).Delete();
+        }
+        else
+        {
+            await GrainFactory.GetGrain<IMultipleChoiceGrain>(actionId).Delete();
+        }
+
+        _state.State.Actions.RemoveAll(a => a.Id == actionId);
+        await _state.WriteStateAsync();
+    }
+
     public Task<ResultsView> GetResults(string actionId)
     {
         if (_state.State.Actions.All(a => a.Id != actionId))

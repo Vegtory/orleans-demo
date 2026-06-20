@@ -29,9 +29,6 @@
     return view.actions.find((a) => a.id === view!.activeActionId) ?? null;
   });
 
-  // True when the live action is a ChargerSim, which gets its own dashboard.
-  let liveChargerSim = $derived(liveAction?.kind === 1 ? liveAction : null);
-
   // New-question form.
   let title = $state('');
   let options = $state<string[]>(['', '']);
@@ -202,6 +199,26 @@
     if (res.ok) results = await res.json();
   }
 
+  async function removeAction(actionId: string) {
+    if (!key) return;
+    if (!confirm('Remove this action? This will kill all its state and cannot be undone.')) return;
+    error = null;
+    busy = true;
+    try {
+      const res = await fetch(`/api/presenter/${encodeURIComponent(key)}/actions/${actionId}`, {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Request failed (${res.status})`);
+      if (selectedActionId === actionId) { selectedActionId = null; results = null; }
+      await refresh();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unknown error';
+    } finally {
+      busy = false;
+    }
+  }
+
   function signOut() {
     if (poll) clearInterval(poll);
     poll = null;
@@ -357,13 +374,6 @@
       {/if}
     </section>
 
-    <!-- Live ChargerSim dashboard -->
-    {#if liveChargerSim && key}
-      <div class="mb-6">
-        <ChargerSimPresenter presenterKey={key} actionId={liveChargerSim.id} {password} />
-      </div>
-    {/if}
-
     <!-- New question -->
     <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div class="flex items-center justify-between">
@@ -431,33 +441,46 @@
       {#if view && view.actions.length > 0}
         <ul class="mt-4 divide-y divide-slate-100">
           {#each view.actions as a}
-            <li class="flex items-center gap-3 py-3">
-              <div class="min-w-0 flex-1">
-                <p class="truncate font-medium">
-                  {#if a.kind === 1}<span class="mr-1">⚡</span>{/if}{a.title}
-                </p>
-                <p class="text-xs text-slate-400">{a.kind === 1 ? 'ChargerSim action' : `${a.optionCount} options`}</p>
+            <li class="py-3">
+              <div class="flex items-center gap-3">
+                <div class="min-w-0 flex-1">
+                  <p class="truncate font-medium">
+                    {#if a.kind === 1}<span class="mr-1">⚡</span>{/if}{a.title}
+                  </p>
+                  <p class="text-xs text-slate-400">{a.kind === 1 ? 'ChargerSim action' : `${a.optionCount} options`}</p>
+                </div>
+                {#if a.id === view.activeActionId}
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
+                    <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500"></span> LIVE
+                  </span>
+                {:else}
+                  <button
+                    onclick={() => activate(a.id)}
+                    class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Set live
+                  </button>
+                {/if}
+                {#if a.kind !== 1}
+                  <button
+                    onclick={() => loadResults(a.id)}
+                    class="rounded-lg px-3 py-1.5 text-sm font-medium transition
+                      {selectedActionId === a.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}"
+                  >
+                    Results
+                  </button>
+                {/if}
+                <button
+                  onclick={() => removeAction(a.id)}
+                  disabled={busy}
+                  aria-label="Remove action"
+                  class="rounded-lg px-2 py-1.5 text-sm font-medium text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                >✕</button>
               </div>
-              {#if a.id === view.activeActionId}
-                <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
-                  <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500"></span> LIVE
-                </span>
-              {:else}
-                <button
-                  onclick={() => activate(a.id)}
-                  class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  Set live
-                </button>
-              {/if}
-              {#if a.kind !== 1}
-                <button
-                  onclick={() => loadResults(a.id)}
-                  class="rounded-lg px-3 py-1.5 text-sm font-medium transition
-                    {selectedActionId === a.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}"
-                >
-                  Results
-                </button>
+              {#if a.kind === 1 && key}
+                <div class="mt-2">
+                  <ChargerSimPresenter presenterKey={key} actionId={a.id} {password} title={a.title} />
+                </div>
               {/if}
             </li>
           {/each}

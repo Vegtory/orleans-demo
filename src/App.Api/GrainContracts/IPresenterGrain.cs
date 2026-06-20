@@ -24,5 +24,11 @@ public interface IPresenterGrain : IGrainWithStringKey
     /// </summary>
     Task ClearActive();
 
+    /// <summary>
+    /// Kills the action (and all its chargers, if ChargerSim), clears its grain state,
+    /// and removes it from this presenter's action list.
+    /// </summary>
+    Task RemoveAction(string actionId);
+
     Task<ResultsView> GetResults(string actionId);
 }

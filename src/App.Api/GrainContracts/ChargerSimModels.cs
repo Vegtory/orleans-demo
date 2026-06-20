@@ -111,7 +111,8 @@ public sealed record ChargerSimDashboard(
     [property: Id(0)] bool Active,
     [property: Id(1)] ChargerFleetSummary Global,
     [property: Id(2)] ChargerFleetSummary[] Attendees,
-    [property: Id(3)] string[] RecentEvents);
+    [property: Id(3)] string[] RecentEvents,
+    [property: Id(4)] bool KillSwitchEnabled = false);
 
 /// <summary>
 /// Stable, readable grain-key conventions for the ChargerSim grain graph, plus

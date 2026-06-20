@@ -224,11 +224,11 @@ api.MapGet("/presenter/{key}/chargersim/{actionId}/dashboard", async (string key
     return Results.Ok(dashboard);
 });
 
-api.MapPost("/presenter/{key}/chargersim/{actionId}/killall", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
+api.MapPost("/presenter/{key}/chargersim/{actionId}/killswitch", async (string key, string actionId, KillSwitchRequest body, HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();
-    await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).KillAllChargers();
-    return Results.Ok(new { killed = true });
+    await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).SetKillSwitch(body.Enabled);
+    return Results.Ok(new { killSwitchEnabled = body.Enabled });
 });
 
 api.MapPost("/presenter/{key}/actions/{actionId}/activate", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
@@ -258,6 +258,20 @@ api.MapGet("/presenter/{key}/actions/{actionId}/results", async (string key, str
     try
     {
         return Results.Ok(await grains.GetGrain<IPresenterGrain>(key).GetResults(actionId));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+api.MapDelete("/presenter/{key}/actions/{actionId}", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    try
+    {
+        await grains.GetGrain<IPresenterGrain>(key).RemoveAction(actionId);
+        return Results.Ok(new { removed = true });
     }
     catch (InvalidOperationException ex)
     {
@@ -438,4 +452,5 @@ internal sealed record AnswerRequest(int OptionIndex);
 internal sealed record TraceToggleRequest(bool Enabled);
 internal sealed record CreateChargerSimRequest(string Title);
 internal sealed record AmountRequest(int Amount);
+internal sealed record KillSwitchRequest(bool Enabled);
 internal sealed record BatchRequest(string Command, int Amount);
