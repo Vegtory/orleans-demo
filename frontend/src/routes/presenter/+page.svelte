@@ -254,12 +254,26 @@
       <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-lg font-bold text-white">P</span>
       <span class="text-lg font-semibold tracking-tight">Live Poll <span class="text-slate-400">· Presenter</span></span>
     </div>
-    <a
-      href="/"
-      class="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
-    >
-      ← Attendee view
-    </a>
+    <nav class="flex items-center gap-1">
+      <a
+        href="/cluster"
+        class="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+      >
+        Cluster
+      </a>
+      <a
+        href="/overview"
+        class="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+      >
+        Overview
+      </a>
+      <a
+        href="/"
+        class="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+      >
+        ← Attendee view
+      </a>
+    </nav>
   </header>
 
   {#if !connected && key}
