@@ -61,6 +61,91 @@
   const DEFAULT_HIDDEN = new Set(['charger', 'attendeechargersim', 'attendeechargeraggregate', 'chargersimaction']);
   let hiddenTypes = $state(new Set(DEFAULT_HIDDEN));
 
+  // Max grains rendered per type. When exceeded, we pick a stable random subset
+  // equally distributed across silos. The selection is sticky: grains stay
+  // selected until they leave the cluster, so the canvas doesn't churn.
+  const MAX_PER_TYPE = 100;
+  // Persistent selection per grain type: Map<type, Set<grainId>>
+  const selectedByType = new Map<string, Set<string>>();
+
+  function shuffle<T>(arr: T[]): T[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // Returns a subset of appGrains capped to MAX_PER_TYPE per type, and a set
+  // of type keys that were capped.
+  function applyPerTypeLimit(
+    appGrains: ActiveGrain[]
+  ): { limited: ActiveGrain[]; cappedTypes: Set<string> } {
+    // Index all active grains by type then by id.
+    const byType = new Map<string, Map<string, ActiveGrain>>();
+    for (const g of appGrains) {
+      const t = typeKey(g.grainId);
+      if (!byType.has(t)) byType.set(t, new Map());
+      byType.get(t)!.set(g.grainId, g);
+    }
+
+    // Drop persistent selections for types that vanished entirely.
+    for (const t of selectedByType.keys()) {
+      if (!byType.has(t)) selectedByType.delete(t);
+    }
+
+    const cappedTypes = new Set<string>();
+    const limited: ActiveGrain[] = [];
+
+    for (const [type, typeMap] of byType) {
+      if (typeMap.size <= MAX_PER_TYPE) {
+        selectedByType.delete(type);
+        for (const g of typeMap.values()) limited.push(g);
+        continue;
+      }
+
+      cappedTypes.add(type);
+
+      if (!selectedByType.has(type)) selectedByType.set(type, new Set());
+      const selected = selectedByType.get(type)!;
+
+      // Evict grains that left the cluster.
+      for (const id of selected) {
+        if (!typeMap.has(id)) selected.delete(id);
+      }
+
+      // Fill remaining slots from unselected grains, round-robining across silos
+      // to keep distribution even.
+      if (selected.size < MAX_PER_TYPE) {
+        const candidates = [...typeMap.keys()].filter((id) => !selected.has(id));
+        const bySilo = new Map<string, string[]>();
+        for (const id of candidates) {
+          const silo = typeMap.get(id)!.siloAddress;
+          if (!bySilo.has(silo)) bySilo.set(silo, []);
+          bySilo.get(silo)!.push(id);
+        }
+        const queues = [...bySilo.values()].map(shuffle);
+        let needed = MAX_PER_TYPE - selected.size;
+        for (let round = 0; needed > 0 && queues.some((q) => round < q.length); round++) {
+          for (const queue of queues) {
+            if (round < queue.length && needed > 0) {
+              selected.add(queue[round]);
+              needed--;
+            }
+          }
+        }
+      }
+
+      for (const id of selected) {
+        const g = typeMap.get(id);
+        if (g) limited.push(g);
+      }
+    }
+
+    return { limited, cappedTypes };
+  }
+
   function toggleType(t: string) {
     const next = new Set(hiddenTypes);
     if (next.has(t)) next.delete(t);
@@ -96,7 +181,7 @@
   let collapsed = $state(true);
   let grainCount = $state(0);
   let siloCount = $state(0);
-  let legend = $state<{ type: string; label: string; color: string; count: number; hidden: boolean }[]>([]);
+  let legend = $state<{ type: string; label: string; color: string; count: number; hidden: boolean; capped: boolean }[]>([]);
 
   // Last activation snapshot — reactive so the $effect below re-runs on changes.
   let lastActivations = $state<ActiveGrain[]>([]);
@@ -104,7 +189,18 @@
   // Re-sync the visualization and legend whenever the snapshot or hidden-types set changes.
   $effect(() => {
     const app = lastActivations.filter(isAppGrain);
-    const visible = app.filter((g) => !hiddenTypes.has(typeKey(g.grainId)));
+
+    // Raw counts before capping (used for the legend so users see the real number).
+    const rawCounts = new Map<string, number>();
+    for (const g of app) {
+      const t = typeKey(g.grainId);
+      rawCounts.set(t, (rawCounts.get(t) ?? 0) + 1);
+    }
+
+    // Apply per-type cap to all app grains before filtering by visibility, so
+    // the selection stays stable even when a type is toggled off and back on.
+    const { limited, cappedTypes } = applyPerTypeLimit(app);
+    const visible = limited.filter((g) => !hiddenTypes.has(typeKey(g.grainId)));
     const grains: GrainInput[] = visible.map((g) => ({
       id: g.grainId,
       type: typeKey(g.grainId),
@@ -115,19 +211,15 @@
 
     grainCount = visible.length;
     siloCount = new Set(app.map((g) => g.siloAddress)).size;
-    const counts = new Map<string, number>();
-    for (const g of app) {
-      const t = typeKey(g.grainId);
-      counts.set(t, (counts.get(t) ?? 0) + 1);
-    }
-    legend = [...counts.entries()]
+    legend = [...rawCounts.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([type, count]) => ({
         type,
         label: labelForType(type),
         color: colorForType(type),
         count,
-        hidden: hiddenTypes.has(type)
+        hidden: hiddenTypes.has(type),
+        capped: cappedTypes.has(type)
       }));
   });
 
@@ -231,6 +323,7 @@
     viz = null;
     primed = false;
     seen = new Set();
+    selectedByType.clear();
   }
 
   // React to expand/collapse. Runs after DOM updates, so when expanding the
@@ -310,7 +403,11 @@
             class="inline-flex items-center gap-1.5 text-xs transition-opacity {item.hidden
               ? 'opacity-40 hover:opacity-70'
               : 'text-slate-400 hover:opacity-80'}"
-            title={item.hidden ? `Show ${item.label} grains` : `Hide ${item.label} grains`}
+            title={item.hidden
+              ? `Show ${item.label} grains`
+              : item.capped
+                ? `Hide ${item.label} grains (showing ${MAX_PER_TYPE} of ${item.count})`
+                : `Hide ${item.label} grains`}
           >
             <span
               class="h-2 w-2 shrink-0 rounded-full border"
@@ -318,6 +415,13 @@
             ></span>
             {item.label}
             <span class="tabular-nums text-slate-500">· {item.count}</span>
+            {#if item.capped}
+              <span
+                class="text-orange-400"
+                title="Showing {MAX_PER_TYPE} of {item.count} grains"
+                aria-label="Display capped at {MAX_PER_TYPE}"
+              >⬤</span>
+            {/if}
           </button>
         {/each}
       </div>
