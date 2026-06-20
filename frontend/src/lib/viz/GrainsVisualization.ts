@@ -54,8 +54,8 @@ export interface GrainsVizOptions {
 
 // --- Tunable physics / animation constants ---------------------------------
 const CENTER_PULL = 0.012; // spring strength toward the assigned silo centre
-const REPEL = 0.9; // local repulsion strength between silo-mates
-const REPEL_RANGE = 30; // px; repulsion only acts within this radius
+const REPEL = 1.1; // local repulsion strength between silo-mates
+const REPEL_RANGE = 44; // px; repulsion only acts within this radius
 const WALL_PUSH = 0.06; // soft containment force near a silo's inner edge
 const DAMPING = 0.86; // velocity damping per frame
 const MAX_SPEED = 6; // px/frame clamp to keep things stable
