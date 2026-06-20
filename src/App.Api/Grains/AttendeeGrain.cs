@@ -35,6 +35,12 @@ public sealed class AttendeeGrain : Grain, IAttendeeGrain
 
     public async Task<AttendeeView> GetState()
     {
+        // Polling GetState is how an attendee "calls" the presentation, so use it
+        // as the heartbeat that keeps them on the presenter's live roster.
+        await GrainFactory
+            .GetGrain<IAttendeeRosterGrain>(IAttendeeRosterGrain.GlobalKey)
+            .Heartbeat(this.GetPrimaryKeyString(), _state.State.Name);
+
         var focus = await GrainFactory
             .GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey)
             .GetFocusInfo();
