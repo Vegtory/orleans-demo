@@ -64,6 +64,19 @@ and safe against duplicate or out-of-order updates. The presenter dashboard roll
 the per-attendee summaries up into a global view by reading the aggregate grains
 (one per attendee) — again, never the individual chargers.
 
+Charger **creation and batch commands are processed asynchronously in the
+background**. An attendee request doesn't fan out inline — it records intent on
+the `IAttendeeChargerSimGrain`: creation bumps a *pending charger count* and a
+command is appended to a *queue*. A grain timer (the background worker) then
+reconciles the fleet toward that intent, creating chargers in chunks and
+executing one queued command per tick, until both the pending count and the queue
+reach zero (at which point the worker stops so the grain can deactivate). This
+keeps every request snappy regardless of fleet size; the attendee UI polls
+`GetWorkStatus` to show how much work is still outstanding. Single-charger
+commands and fleet reads stay synchronous. The cap of 5,000 live chargers is
+enforced when a request is accepted (reserving room for work already queued), so
+rapid requests can never overshoot it.
+
 Grain key conventions:
 
 ```

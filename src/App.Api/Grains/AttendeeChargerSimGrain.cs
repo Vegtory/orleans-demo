@@ -1,6 +1,17 @@
 using App.Api.GrainContracts;
+using Orleans.Runtime;
 
 namespace App.Api.Grains;
+
+/// <summary>A single batch command waiting in the attendee's background work queue.</summary>
+[GenerateSerializer]
+public sealed class QueuedBatchCommand
+{
+    [Id(0)] public BatchChargerCommandType Command { get; set; }
+
+    /// <summary>How many chargers the command should target (selected from the aggregate snapshot).</summary>
+    [Id(1)] public int Amount { get; set; }
+}
 
 /// <summary>Persisted state for one attendee's ChargerSim controller.</summary>
 [GenerateSerializer]
@@ -14,22 +25,37 @@ public sealed class AttendeeChargerSimState
     /// <summary>Set permanently once a kill request is received. Causes the grain to
     /// complete teardown on the next method entry and deactivate.</summary>
     [Id(2)] public bool Killed { get; set; }
+
+    /// <summary>Chargers requested but not yet created. The background worker drains this to zero.</summary>
+    [Id(3)] public int PendingCreate { get; set; }
+
+    /// <summary>FIFO queue of batch commands the background worker still has to execute.</summary>
+    [Id(4)] public List<QueuedBatchCommand> PendingCommands { get; set; } = new();
 }
 
 /// <summary>
-/// One per attendee. The attendee's control surface for ChargerSim: it creates
-/// chargers (capped at 10,000), fans batch and single commands out to charger
-/// grains, and delegates fleet reads to the aggregate grain. Commands are
-/// rejected unless the action is active.
+/// One per attendee. The attendee's control surface for ChargerSim. Creation and
+/// batch commands are accepted instantly — they are recorded as background work
+/// (a desired charger count and a queue of commands) and carried out by a grain
+/// timer that creates chargers in chunks and executes queued commands one at a
+/// time. Single-charger commands and fleet reads stay synchronous. Create and
+/// batch requests are rejected at submission time unless the action is active;
+/// the cap is likewise enforced when a create request is accepted.
 /// </summary>
 public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 {
     private const int CreateChunkSize = 250;
     private const int CommandChunkSize = 500;
 
+    // The background worker fires this often while there is outstanding work. Each
+    // tick creates at most one CreateChunkSize batch and executes one queued
+    // command, keeping every tick short so it never blocks summary polls for long.
+    private static readonly TimeSpan WorkerPeriod = TimeSpan.FromMilliseconds(250);
+
     private readonly IPersistentState<AttendeeChargerSimState> _state;
     private string _actionId = "";
     private string _attendeeId = "";
+    private IGrainTimer? _worker;
 
     public AttendeeChargerSimGrain(
         [PersistentState("attendeeChargerSim", "store")] IPersistentState<AttendeeChargerSimState> state)
@@ -48,7 +74,16 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         // If the grain was killed before it had a chance to deactivate (e.g. a
         // silo restart re-activated it from persisted state), finish teardown now.
         if (_state.State.Killed)
+        {
             await SelfDestruct();
+            return;
+        }
+
+        // If work was outstanding when the grain last deactivated (or the silo
+        // restarted), pick it back up. The grain reactivates as soon as the UI's
+        // summary poll touches it, so the worker resumes on its own.
+        if (HasPendingWork)
+            EnsureWorker();
     }
 
     public async Task Register(string displayName)
@@ -81,52 +116,35 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
         // Killed chargers do not count toward the cap, so the room available is
         // based on the number of currently live chargers (from the aggregate),
-        // not the total ever created. Charger numbers still increase monotonically
-        // so display ids stay unique.
+        // not the total ever created. We also reserve room for work already queued
+        // so rapid requests can never blow past the cap. Charger numbers still
+        // increase monotonically (driven by Count) so display ids stay unique.
         var summary = await Aggregate.GetSummary();
         var live = summary.NoSessionCount + summary.ActiveSessionCount + summary.PausedWithSessionCount;
-        var room = IAttendeeChargerSimGrain.MaxChargers - live;
-        var toCreate = Math.Clamp(amount, 0, room);
+        var room = IAttendeeChargerSimGrain.MaxChargers - live - _state.State.PendingCreate;
+        var toCreate = Math.Clamp(amount, 0, Math.Max(0, room));
         if (toCreate == 0)
         {
-            return _state.State.Count;
+            return live + _state.State.PendingCreate;
         }
 
-        var start = _state.State.Count + 1;
-        var end = _state.State.Count + toCreate;
-
-        for (var n = start; n <= end; n += CreateChunkSize)
-        {
-            var chunkEnd = Math.Min(n + CreateChunkSize - 1, end);
-            var tasks = new List<Task>(chunkEnd - n + 1);
-            for (var i = n; i <= chunkEnd; i++)
-            {
-                var charger = GrainFactory.GetGrain<IChargerGrain>(ChargerSimKeys.Charger(_actionId, _attendeeId, i));
-                tasks.Add(charger.Initialize(ChargerSimKeys.DisplayId(i)));
-            }
-
-            await Task.WhenAll(tasks);
-        }
-
-        _state.State.Count = end;
+        // Record the request and let the background worker actually create them.
+        _state.State.PendingCreate += toCreate;
         await _state.WriteStateAsync();
 
-        await RecordEvent($"created {toCreate:N0} chargers (now {_state.State.Count:N0})");
-        return _state.State.Count;
+        await RecordEvent($"requested {toCreate:N0} chargers");
+        EnsureWorker();
+        return live + _state.State.PendingCreate;
     }
 
     public async Task KillMyChargers()
     {
         if (await HandleIfKilled()) return;
 
-        // Kill only the chargers that are still alive (selected from the aggregate
-        // snapshot) so we don't reactivate already-killed, deactivated grains.
-        // Each killed charger publishes its final Killed contribution.
-        var ids = await Aggregate.SelectChargerIds(ChargerSelectionFilter.Any, _state.State.Count);
-        var numbers = ids.Select(ChargerSimKeys.NumberFromDisplayId).Where(n => n > 0).ToList();
-
-        await ForEachCharger(numbers, c => c.Kill());
-        await RecordEvent($"killed all {numbers.Count:N0} chargers");
+        // Queue a "kill everything still alive" batch. MaxChargers is an upper
+        // bound on the selection; the worker resolves the actual live set from the
+        // aggregate snapshot when it runs.
+        await QueueCommand(BatchChargerCommandType.Kill, IAttendeeChargerSimGrain.MaxChargers);
     }
 
     public async Task SendBatchCommand(BatchChargerCommandType command, int amount)
@@ -135,37 +153,11 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         await EnsureActive();
 
         var take = amount <= 0 ? IAttendeeChargerSimGrain.DefaultBatchSize : amount;
-        var (filter, verb) = command switch
-        {
-            BatchChargerCommandType.StartSessions => (ChargerSelectionFilter.WithoutSession, "started sessions on"),
-            BatchChargerCommandType.StopCharging => (ChargerSelectionFilter.ActiveSessions, "stopped charging on"),
-            BatchChargerCommandType.StopSessions => (ChargerSelectionFilter.ActiveOrPausedSessions, "stopped sessions on"),
-            BatchChargerCommandType.LowerPowerUsage => (ChargerSelectionFilter.ActiveSessions, "lowered power usage on"),
-            BatchChargerCommandType.IncreasePowerUsage => (ChargerSelectionFilter.ActiveSessions, "increased power usage on"),
-            BatchChargerCommandType.RandomChaos => (ChargerSelectionFilter.Any, "unleashed chaos on"),
-            BatchChargerCommandType.Kill => (ChargerSelectionFilter.Any, "killed"),
-            _ => (ChargerSelectionFilter.Any, "touched")
-        };
-
-        // Selection comes from the aggregate snapshot — we never poll the chargers
-        // to decide which ones to target.
-        var ids = await Aggregate.SelectChargerIds(filter, take);
-        var numbers = ids.Select(ChargerSimKeys.NumberFromDisplayId).Where(n => n > 0).ToList();
-
-        await ForEachCharger(numbers, c => command switch
-        {
-            BatchChargerCommandType.StartSessions => c.StartSession(),
-            BatchChargerCommandType.StopCharging => c.StopCharging(),
-            BatchChargerCommandType.StopSessions => c.StopSession(),
-            BatchChargerCommandType.LowerPowerUsage => c.LowerPowerUsage(),
-            BatchChargerCommandType.IncreasePowerUsage => c.IncreasePowerUsage(),
-            BatchChargerCommandType.RandomChaos => c.RandomChaos(),
-            BatchChargerCommandType.Kill => c.Kill(),
-            _ => Task.CompletedTask
-        });
-
-        await RecordEvent($"{verb} {numbers.Count:N0} chargers");
+        await QueueCommand(command, take);
     }
+
+    public Task<ChargerSimWorkStatus> GetWorkStatus() =>
+        Task.FromResult(new ChargerSimWorkStatus(_state.State.PendingCreate, _state.State.PendingCommands.Count));
 
     public async Task<ChargerSnapshot?> CommandCharger(string chargerId, SingleChargerCommandType command)
     {
@@ -230,6 +222,138 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         return ids;
     }
 
+    // -- Background worker ------------------------------------------------------
+
+    private bool HasPendingWork =>
+        _state.State.PendingCreate > 0 || _state.State.PendingCommands.Count > 0;
+
+    // Queues a batch command and makes sure the worker is running. The verb/filter
+    // mapping lives in the worker (ExecuteNextCommand); here we just record intent.
+    private async Task QueueCommand(BatchChargerCommandType command, int amount)
+    {
+        _state.State.PendingCommands.Add(new QueuedBatchCommand { Command = command, Amount = amount });
+        await _state.WriteStateAsync();
+        EnsureWorker();
+    }
+
+    // Starts the background worker if it isn't already running. KeepAlive holds the
+    // activation open while work is outstanding; the timer disposes itself once the
+    // queues drain so the grain can deactivate normally. Interleave is left off so
+    // each tick runs as an ordinary (exclusive) grain turn and can't race the
+    // request methods that mutate the same state.
+    private void EnsureWorker()
+    {
+        _worker ??= this.RegisterGrainTimer(
+            callback: static (self, _) => self.RunWorkerTick(),
+            state: this,
+            options: new GrainTimerCreationOptions
+            {
+                DueTime = TimeSpan.Zero,
+                Period = WorkerPeriod,
+                Interleave = false,
+                KeepAlive = true
+            });
+    }
+
+    private void StopWorker()
+    {
+        _worker?.Dispose();
+        _worker = null;
+    }
+
+    // One unit of background work: create the next chunk of requested chargers,
+    // then execute the next queued command. Stops the worker once both queues are
+    // empty. Creation runs first so a command queued alongside a create acts on the
+    // chargers that now exist.
+    private async Task RunWorkerTick()
+    {
+        if (_state.State.Killed)
+        {
+            StopWorker();
+            return;
+        }
+
+        if (_state.State.PendingCreate > 0)
+        {
+            await CreateNextChunk();
+        }
+
+        if (_state.State.PendingCommands.Count > 0)
+        {
+            await ExecuteNextCommand();
+        }
+
+        if (!HasPendingWork)
+        {
+            StopWorker();
+        }
+    }
+
+    private async Task CreateNextChunk()
+    {
+        var toCreate = Math.Min(_state.State.PendingCreate, CreateChunkSize);
+        var start = _state.State.Count + 1;
+        var end = _state.State.Count + toCreate;
+
+        var tasks = new List<Task>(toCreate);
+        for (var i = start; i <= end; i++)
+        {
+            var charger = GrainFactory.GetGrain<IChargerGrain>(ChargerSimKeys.Charger(_actionId, _attendeeId, i));
+            tasks.Add(charger.Initialize(ChargerSimKeys.DisplayId(i)));
+        }
+
+        await Task.WhenAll(tasks);
+
+        _state.State.Count = end;
+        _state.State.PendingCreate -= toCreate;
+        await _state.WriteStateAsync();
+
+        await RecordEvent($"created {toCreate:N0} chargers (now {_state.State.Count:N0})");
+    }
+
+    private async Task ExecuteNextCommand()
+    {
+        // Dequeue and persist before executing so a crash mid-flight can't replay
+        // the command — at-most-once is the right tradeoff for fire-and-forget
+        // fleet commands.
+        var queued = _state.State.PendingCommands[0];
+        _state.State.PendingCommands.RemoveAt(0);
+        await _state.WriteStateAsync();
+
+        var command = queued.Command;
+        var take = queued.Amount <= 0 ? IAttendeeChargerSimGrain.DefaultBatchSize : queued.Amount;
+        var (filter, verb) = command switch
+        {
+            BatchChargerCommandType.StartSessions => (ChargerSelectionFilter.WithoutSession, "started sessions on"),
+            BatchChargerCommandType.StopCharging => (ChargerSelectionFilter.ActiveSessions, "stopped charging on"),
+            BatchChargerCommandType.StopSessions => (ChargerSelectionFilter.ActiveOrPausedSessions, "stopped sessions on"),
+            BatchChargerCommandType.LowerPowerUsage => (ChargerSelectionFilter.ActiveSessions, "lowered power usage on"),
+            BatchChargerCommandType.IncreasePowerUsage => (ChargerSelectionFilter.ActiveSessions, "increased power usage on"),
+            BatchChargerCommandType.RandomChaos => (ChargerSelectionFilter.Any, "unleashed chaos on"),
+            BatchChargerCommandType.Kill => (ChargerSelectionFilter.Any, "killed"),
+            _ => (ChargerSelectionFilter.Any, "touched")
+        };
+
+        // Selection comes from the aggregate snapshot — we never poll the chargers
+        // to decide which ones to target.
+        var ids = await Aggregate.SelectChargerIds(filter, take);
+        var numbers = ids.Select(ChargerSimKeys.NumberFromDisplayId).Where(n => n > 0).ToList();
+
+        await ForEachCharger(numbers, c => command switch
+        {
+            BatchChargerCommandType.StartSessions => c.StartSession(),
+            BatchChargerCommandType.StopCharging => c.StopCharging(),
+            BatchChargerCommandType.StopSessions => c.StopSession(),
+            BatchChargerCommandType.LowerPowerUsage => c.LowerPowerUsage(),
+            BatchChargerCommandType.IncreasePowerUsage => c.IncreasePowerUsage(),
+            BatchChargerCommandType.RandomChaos => c.RandomChaos(),
+            BatchChargerCommandType.Kill => c.Kill(),
+            _ => Task.CompletedTask
+        });
+
+        await RecordEvent($"{verb} {numbers.Count:N0} chargers");
+    }
+
     // -- Helpers ----------------------------------------------------------------
 
     private IChargerSimActionGrain Action =>
@@ -252,6 +376,12 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
     // DeactivateOnIdle is a hint the runtime ignores if already deactivating).
     private async Task SelfDestruct()
     {
+        // Stop the background worker and drop any outstanding work — a killed sim
+        // must not keep creating chargers or running commands.
+        StopWorker();
+        _state.State.PendingCreate = 0;
+        _state.State.PendingCommands.Clear();
+
         // If this grain ever registers a reminder (implement IRemindable + call
         // RegisterOrUpdateReminder), unregister it here before clearing state so
         // the reminder store stays clean. Example:
@@ -292,9 +422,6 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
         return GrainFactory.GetGrain<IChargerGrain>(ChargerSimKeys.Charger(_actionId, _attendeeId, number));
     }
-
-    private Task ForEachCharger(int from, int to, Func<IChargerGrain, Task> command) =>
-        ForEachCharger(Enumerable.Range(from, Math.Max(0, to - from + 1)).ToList(), command);
 
     private async Task ForEachCharger(IReadOnlyList<int> numbers, Func<IChargerGrain, Task> command)
     {

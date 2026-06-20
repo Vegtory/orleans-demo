@@ -90,6 +90,17 @@ public sealed class ChargerFleetSummary
     [Id(10)] public string AttendeeName { get; set; } = "";
 }
 
+/// <summary>
+/// The attendee's outstanding background work: chargers still to be created and
+/// batch commands still queued. The attendee's controller grain accepts create
+/// and command requests instantly and drains this work on a background timer, so
+/// the UI polls this to show "still working" without blocking on the request.
+/// </summary>
+[GenerateSerializer]
+public sealed record ChargerSimWorkStatus(
+    [property: Id(0)] int PendingChargers,
+    [property: Id(1)] int QueuedCommands);
+
 /// <summary>A point-in-time snapshot of one charger, returned only when an attendee opens it.</summary>
 [GenerateSerializer]
 public sealed record ChargerSnapshot(
