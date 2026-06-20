@@ -238,4 +238,48 @@ public sealed class ChargerSimTests
         Assert.Equal(2, dashboard.Attendees.Length);
         Assert.Contains(dashboard.RecentEvents, e => e.Contains("Presenter killed all chargers"));
     }
+
+    [Fact]
+    public async Task Presenter_kill_all_finds_fleets_that_never_registered()
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        var action = _cluster.GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId));
+        await action.Activate();
+
+        // Note: carol never calls Register, so the action grain has no record of
+        // her — yet KillAllChargers must still find and kill her live chargers by
+        // searching the cluster for active charger grains.
+        var carol = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
+            ChargerSimKeys.Attendee(actionId, "carol-unreg"));
+        await carol.CreateChargers(6);
+
+        await action.KillAllChargers();
+
+        var summary = await carol.GetSummary();
+        Assert.Equal(6, summary.KilledCount);
+        Assert.Equal(0, summary.NoSessionCount);
+    }
+
+    [Fact]
+    public async Task Killed_chargers_do_not_count_toward_the_cap()
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        var action = _cluster.GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId));
+        await action.Activate();
+
+        var attendee = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
+            ChargerSimKeys.Attendee(actionId, "alice-recap"));
+
+        await attendee.CreateChargers(20);
+        await attendee.KillMyChargers();
+
+        // 20 killed; the cap should now have full room again. Creating 30 more
+        // must succeed (it would not if killed chargers still counted).
+        await attendee.CreateChargers(30);
+
+        var summary = await attendee.GetSummary();
+        var live = summary.NoSessionCount + summary.ActiveSessionCount + summary.PausedWithSessionCount;
+        Assert.Equal(30, live);
+        Assert.Equal(20, summary.KilledCount);
+    }
 }

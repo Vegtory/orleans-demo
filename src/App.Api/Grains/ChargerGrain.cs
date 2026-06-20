@@ -160,6 +160,11 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
         {
             await this.UnregisterReminder(reminder);
         }
+
+        // Nothing more will ever happen to a killed charger, so let it deactivate
+        // and free its activation. Its final Killed contribution has already been
+        // published to the aggregate.
+        DeactivateOnIdle();
     }
 
     // -- Simulation -------------------------------------------------------------
