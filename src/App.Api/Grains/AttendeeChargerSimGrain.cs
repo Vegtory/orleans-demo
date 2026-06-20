@@ -56,6 +56,8 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
     public async Task<int> CreateChargers(int amount)
     {
         await EnsureActive();
+        if (await Action.IsKillSwitchEnabled())
+            throw new InvalidOperationException("Kill switch is engaged.");
 
         // Killed chargers do not count toward the cap, so the room available is
         // based on the number of currently live chargers (from the aggregate),

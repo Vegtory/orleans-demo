@@ -13,6 +13,7 @@ public interface IChargerSimActionGrain : IGrainWithStringKey
     Task Activate();
     Task Deactivate();
     Task<bool> IsActive();
+    Task<bool> IsKillSwitchEnabled();
 
     Task RegisterAttendee(string attendeeId);
 

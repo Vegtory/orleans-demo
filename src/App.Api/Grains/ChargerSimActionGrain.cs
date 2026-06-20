@@ -62,6 +62,7 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
     }
 
     public Task<bool> IsActive() => Task.FromResult(_state.State.Active);
+    public Task<bool> IsKillSwitchEnabled() => Task.FromResult(_state.State.KillSwitchEnabled);
 
     public async Task RegisterAttendee(string attendeeId)
     {
