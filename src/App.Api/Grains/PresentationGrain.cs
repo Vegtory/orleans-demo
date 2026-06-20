@@ -11,6 +11,9 @@ public sealed class PresentationState
 {
     [Id(0)]
     public string? FocusedActionId { get; set; }
+
+    [Id(1)]
+    public ActionKind FocusedKind { get; set; }
 }
 
 public sealed class PresentationGrain : Grain, IPresentationGrain
@@ -23,9 +26,10 @@ public sealed class PresentationGrain : Grain, IPresentationGrain
         _state = state;
     }
 
-    public async Task SetFocus(string actionId)
+    public async Task SetFocus(string actionId, ActionKind kind = ActionKind.MultipleChoice)
     {
         _state.State.FocusedActionId = actionId;
+        _state.State.FocusedKind = kind;
         await _state.WriteStateAsync();
     }
 
@@ -36,4 +40,7 @@ public sealed class PresentationGrain : Grain, IPresentationGrain
     }
 
     public Task<string?> GetFocus() => Task.FromResult(_state.State.FocusedActionId);
+
+    public Task<ActionKind?> GetFocusKind() => Task.FromResult(
+        _state.State.FocusedActionId is null ? (ActionKind?)null : _state.State.FocusedKind);
 }

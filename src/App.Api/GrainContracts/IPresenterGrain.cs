@@ -13,6 +13,9 @@ public interface IPresenterGrain : IGrainWithStringKey
     /// <summary>Creates a new multiple-choice action and returns its id.</summary>
     Task<string> CreateMultipleChoice(string title, string[] options);
 
+    /// <summary>Creates a new ChargerSim action and returns its id.</summary>
+    Task<string> CreateChargerSim(string title);
+
     /// <summary>Puts one of this presenter's actions in focus on the global presentation.</summary>
     Task SetActive(string actionId);
 

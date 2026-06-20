@@ -1,5 +1,6 @@
 using App.Api.Observability;
 using Microsoft.Extensions.DependencyInjection;
+using Orleans.Configuration;
 using Orleans.TestingHost;
 
 namespace App.Api.Tests;
@@ -16,6 +17,9 @@ public sealed class TestSiloConfigurator : ISiloConfigurator
     public void Configure(ISiloBuilder siloBuilder)
     {
         siloBuilder.AddMemoryGrainStorage("store");
+        siloBuilder.UseInMemoryReminderService();
+        siloBuilder.Configure<ReminderOptions>(options =>
+            options.MinimumReminderPeriod = TimeSpan.FromSeconds(15));
 
         siloBuilder.Services.AddSingleton<LocalCallTraceQueue>();
         siloBuilder.Services.AddSingleton<CallTraceSuppression>();

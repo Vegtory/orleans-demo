@@ -9,7 +9,10 @@ public interface IPresentationGrain : IGrainWithStringKey
     /// <summary>The well-known key of the one global presentation grain.</summary>
     public const string GlobalKey = "global";
 
-    Task SetFocus(string actionId);
+    Task SetFocus(string actionId, ActionKind kind = ActionKind.MultipleChoice);
     Task ClearFocus();
     Task<string?> GetFocus();
+
+    /// <summary>The kind of the action currently in focus, or null when nothing is live.</summary>
+    Task<ActionKind?> GetFocusKind();
 }

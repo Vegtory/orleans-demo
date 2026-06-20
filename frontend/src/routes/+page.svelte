@@ -1,9 +1,15 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { attendeeSession, sessionHeaders } from '$lib/session';
+  import ChargerSimAttendee from '$lib/ChargerSimAttendee.svelte';
 
   interface QuestionView { actionId: string; title: string; options: string[]; }
-  interface AttendeeView { name: string; focus: QuestionView | null; yourAnswer: number | null; }
+  interface AttendeeView {
+    name: string;
+    focus: QuestionView | null;
+    yourAnswer: number | null;
+    chargerSimActionId: string | null;
+  }
 
   let name = $state('');
   let key = $state<string | null>(null);
@@ -148,7 +154,9 @@
         </button>
       </div>
 
-      {#if view?.focus}
+      {#if view?.chargerSimActionId && key}
+        <ChargerSimAttendee actionId={view.chargerSimActionId} attendeeKey={key} name={view?.name || name} />
+      {:else if view?.focus}
         <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
             <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500"></span>

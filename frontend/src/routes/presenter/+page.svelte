@@ -2,8 +2,10 @@
   import { onDestroy, onMount } from 'svelte';
   import { presenterSession, sessionHeaders } from '$lib/session';
   import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
+  import ChargerSimPresenter from '$lib/ChargerSimPresenter.svelte';
 
-  interface ActionSummary { id: string; title: string; optionCount: number; }
+  // ActionKind, serialized as a number: 0 = MultipleChoice, 1 = ChargerSim.
+  interface ActionSummary { id: string; title: string; optionCount: number; kind: number; }
   interface PresenterView { name: string; actions: ActionSummary[]; activeActionId: string | null; }
   interface ResultsView { actionId: string; title: string; options: string[]; counts: number[]; total: number; }
 
@@ -26,6 +28,9 @@
     if (!view?.activeActionId) return null;
     return view.actions.find((a) => a.id === view!.activeActionId) ?? null;
   });
+
+  // True when the live action is a ChargerSim, which gets its own dashboard.
+  let liveChargerSim = $derived(liveAction?.kind === 1 ? liveAction : null);
 
   // New-question form.
   let title = $state('');
@@ -142,6 +147,26 @@
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Request failed (${res.status})`);
       title = '';
       options = ['', ''];
+      await refresh();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unknown error';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function createChargerSim() {
+    if (!key) return;
+    error = null;
+    busy = true;
+    try {
+      const res = await fetch(`/api/presenter/${encodeURIComponent(key)}/chargersim`, {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ title: title.trim() || 'Charger fleet simulation' })
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Request failed (${res.status})`);
+      title = '';
       await refresh();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
@@ -332,9 +357,27 @@
       {/if}
     </section>
 
+    <!-- Live ChargerSim dashboard -->
+    {#if liveChargerSim && key}
+      <div class="mb-6">
+        <ChargerSimPresenter presenterKey={key} actionId={liveChargerSim.id} {password} />
+      </div>
+    {/if}
+
     <!-- New question -->
     <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 class="text-lg font-semibold tracking-tight">Create a question</h2>
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold tracking-tight">Create a question</h2>
+        <button
+          type="button"
+          disabled={busy}
+          onclick={createChargerSim}
+          class="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
+          title="Create a ChargerSim action (uses the title above, or a default)"
+        >
+          ⚡ New ChargerSim
+        </button>
+      </div>
       <form class="mt-4 space-y-3" onsubmit={(e) => { e.preventDefault(); createQuestion(); }}>
         <input
           bind:value={title}
@@ -390,8 +433,10 @@
           {#each view.actions as a}
             <li class="flex items-center gap-3 py-3">
               <div class="min-w-0 flex-1">
-                <p class="truncate font-medium">{a.title}</p>
-                <p class="text-xs text-slate-400">{a.optionCount} options</p>
+                <p class="truncate font-medium">
+                  {#if a.kind === 1}<span class="mr-1">⚡</span>{/if}{a.title}
+                </p>
+                <p class="text-xs text-slate-400">{a.kind === 1 ? 'ChargerSim action' : `${a.optionCount} options`}</p>
               </div>
               {#if a.id === view.activeActionId}
                 <span class="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
@@ -405,13 +450,15 @@
                   Set live
                 </button>
               {/if}
-              <button
-                onclick={() => loadResults(a.id)}
-                class="rounded-lg px-3 py-1.5 text-sm font-medium transition
-                  {selectedActionId === a.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}"
-              >
-                Results
-              </button>
+              {#if a.kind !== 1}
+                <button
+                  onclick={() => loadResults(a.id)}
+                  class="rounded-lg px-3 py-1.5 text-sm font-medium transition
+                    {selectedActionId === a.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}"
+                >
+                  Results
+                </button>
+              {/if}
             </li>
           {/each}
         </ul>

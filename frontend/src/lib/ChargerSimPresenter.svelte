@@ -1,0 +1,168 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte';
+  import { sessionHeaders } from '$lib/session';
+
+  // The presenter's main-stage ChargerSim dashboard: global totals, per-attendee
+  // cards and a big Kill all button. It polls a single grain call (the action
+  // grain's dashboard) which rolls up aggregate grains — never the chargers.
+  let { presenterKey, actionId, password }: { presenterKey: string; actionId: string; password: string } = $props();
+
+  interface FleetSummary {
+    attendeeId: string;
+    attendeeName: string;
+    totalChargers: number;
+    noSessionCount: number;
+    activeSessionCount: number;
+    pausedWithSessionCount: number;
+    killedCount: number;
+    chargersWithSessionCount: number;
+    totalActivePowerKw: number;
+    totalSessionKwh: number;
+  }
+
+  interface Dashboard {
+    active: boolean;
+    global: FleetSummary;
+    attendees: FleetSummary[];
+    recentEvents: string[];
+  }
+
+  let dash = $state<Dashboard | null>(null);
+  let error = $state<string | null>(null);
+  let busy = $state(false);
+
+  const base = $derived(`/api/presenter/${encodeURIComponent(presenterKey)}/chargersim/${encodeURIComponent(actionId)}`);
+
+  function authHeaders(json = false): HeadersInit {
+    const h: Record<string, string> = { ...sessionHeaders(), 'X-Presenter-Password': password };
+    if (json) h['Content-Type'] = 'application/json';
+    return h;
+  }
+
+  let poll: ReturnType<typeof setInterval> | null = null;
+  let started = false;
+
+  $effect(() => {
+    if (!started && actionId && presenterKey) {
+      started = true;
+      refresh();
+      poll = setInterval(refresh, 1500);
+    }
+  });
+
+  async function refresh() {
+    try {
+      const res = await fetch(`${base}/dashboard`, { headers: authHeaders() });
+      if (res.ok) {
+        dash = await res.json();
+        error = null;
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unknown error';
+    }
+  }
+
+  async function killAll() {
+    if (!confirm('Kill ALL chargers for every attendee?')) return;
+    busy = true;
+    error = null;
+    try {
+      const res = await fetch(`${base}/killall`, { method: 'POST', headers: authHeaders() });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      await refresh();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Unknown error';
+    } finally {
+      busy = false;
+    }
+  }
+
+  const fmt = (n: number, d = 1) => (n ?? 0).toLocaleString(undefined, { maximumFractionDigits: d });
+</script>
+
+<section class="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-white shadow-lg">
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-lg font-bold tracking-tight">⚡ ChargerSim · main stage</h2>
+      <p class="text-sm text-slate-400">Live fleet across all attendees</p>
+    </div>
+    <button
+      disabled={busy}
+      onclick={killAll}
+      class="rounded-xl bg-red-600 px-5 py-3 text-base font-bold text-white shadow-lg ring-2 ring-red-400/40 transition hover:bg-red-500 disabled:opacity-50"
+    >
+      ☠ Kill all chargers
+    </button>
+  </div>
+
+  <!-- Big global numbers -->
+  <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+    <div class="rounded-xl bg-indigo-600/20 px-4 py-3 ring-1 ring-indigo-500/30">
+      <p class="text-xs uppercase tracking-wide text-indigo-300">Total active power</p>
+      <p class="text-3xl font-black tabular-nums text-indigo-200">{fmt(dash?.global.totalActivePowerKw ?? 0)} <span class="text-lg">kW</span></p>
+    </div>
+    <div class="rounded-xl bg-slate-800 px-4 py-3">
+      <p class="text-xs uppercase tracking-wide text-slate-400">Total chargers</p>
+      <p class="text-3xl font-black tabular-nums">{fmt(dash?.global.totalChargers ?? 0, 0)}</p>
+    </div>
+    <div class="rounded-xl bg-slate-800 px-4 py-3">
+      <p class="text-xs uppercase tracking-wide text-slate-400">Total session energy</p>
+      <p class="text-3xl font-black tabular-nums">{fmt(dash?.global.totalSessionKwh ?? 0)} <span class="text-lg">kWh</span></p>
+    </div>
+    <div class="rounded-xl bg-green-600/20 px-4 py-3 ring-1 ring-green-500/30">
+      <p class="text-xs uppercase tracking-wide text-green-300">Active sessions</p>
+      <p class="text-2xl font-black tabular-nums text-green-200">{fmt(dash?.global.activeSessionCount ?? 0, 0)}</p>
+    </div>
+    <div class="rounded-xl bg-amber-600/20 px-4 py-3 ring-1 ring-amber-500/30">
+      <p class="text-xs uppercase tracking-wide text-amber-300">Paused sessions</p>
+      <p class="text-2xl font-black tabular-nums text-amber-200">{fmt(dash?.global.pausedWithSessionCount ?? 0, 0)}</p>
+    </div>
+    <div class="rounded-xl bg-red-600/20 px-4 py-3 ring-1 ring-red-500/30">
+      <p class="text-xs uppercase tracking-wide text-red-300">Killed chargers</p>
+      <p class="text-2xl font-black tabular-nums text-red-200">{fmt(dash?.global.killedCount ?? 0, 0)}</p>
+    </div>
+  </div>
+
+  <!-- Event ticker -->
+  {#if dash?.recentEvents?.length}
+    <div class="mt-5">
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent activity</h3>
+      <ul class="mt-2 space-y-1 text-sm text-slate-300">
+        {#each dash.recentEvents.slice(0, 6) as ev}
+          <li class="truncate">• {ev}</li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
+  <!-- Per-attendee cards -->
+  <div class="mt-5">
+    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Per-attendee fleets</h3>
+    {#if dash?.attendees?.length}
+      <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {#each dash.attendees as a}
+          <div class="rounded-xl bg-slate-800 px-4 py-3">
+            <div class="flex items-center justify-between">
+              <p class="font-semibold">{a.attendeeName || a.attendeeId}</p>
+              <p class="text-sm tabular-nums text-slate-400">{fmt(a.totalChargers, 0)} chargers</p>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
+              <span class="text-green-300">{fmt(a.activeSessionCount, 0)} active</span>
+              <span class="text-amber-300">{fmt(a.pausedWithSessionCount, 0)} paused</span>
+              <span>{fmt(a.noSessionCount, 0)} idle</span>
+              <span class="text-red-300">{fmt(a.killedCount, 0)} killed</span>
+              <span class="text-indigo-300">{fmt(a.totalActivePowerKw)} kW</span>
+              <span>{fmt(a.totalSessionKwh)} kWh</span>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <p class="mt-2 text-sm text-slate-500">No attendees have joined yet.</p>
+    {/if}
+  </div>
+
+  {#if error}
+    <p class="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>
+  {/if}
+</section>

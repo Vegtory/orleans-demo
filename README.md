@@ -47,6 +47,37 @@ exposed externally (only HTTP/8080).
 | POST   | `/api/counter/{id}/increment`  | Increment and return value   |
 | POST   | `/api/counter/{id}/reset`      | Reset to 0                   |
 
+### ChargerSim presentation action
+
+`ChargerSim` is a presenter-activated action that demonstrates Orleans at scale:
+every attendee runs their own fleet of up to **10,000 simulated EV chargers**,
+and **each charger is its own grain with its own 30-second Orleans reminder**
+that drives a small randomized state machine (sessions start, charge, pause,
+resume and stop; sessions last ~3 minutes on average).
+
+Aggregation is **push-based and never polls the chargers**. After every tick and
+every command a charger publishes its *absolute* current contribution
+(`ChargerAggregateContribution`) to a per-attendee
+`AttendeeChargerAggregateGrain`, which keeps a live `ChargerFleetSummary`
+incrementally. Updates carry a monotonic version, so the aggregate is idempotent
+and safe against duplicate or out-of-order updates. The presenter dashboard rolls
+the per-attendee summaries up into a global view by reading the aggregate grains
+(one per attendee) — again, never the individual chargers.
+
+Grain key conventions:
+
+```
+action-{actionId}                                    IChargerSimActionGrain
+action-{actionId}/attendee-{attendeeId}              IAttendeeChargerSimGrain
+action-{actionId}/attendee-{attendeeId}/aggregate    IAttendeeChargerAggregateGrain
+action-{actionId}/attendee-{attendeeId}/charger-{n}  IChargerGrain   (display id "CP-000042")
+```
+
+Because chargers use a 30-second reminder period (below Orleans' one-minute
+default minimum), the silo sets `ReminderOptions.MinimumReminderPeriod` to 15s,
+and the host enables a reminder service: in-memory in `Local` mode and Azure
+Table reminders in `AzureStorage` mode.
+
 ### Orleans clustering / persistence modes
 
 Selected by the `ORLEANS_CLUSTERING` environment variable. Application/grain

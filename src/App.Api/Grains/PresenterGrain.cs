@@ -54,20 +54,43 @@ public sealed class PresenterGrain : Grain, IPresenterGrain
         return actionId;
     }
 
+    public async Task<string> CreateChargerSim(string title)
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        // The ChargerSim action grain is created lazily on activation; we only
+        // need to record the summary so the presenter can list/activate it.
+        _state.State.Actions.Add(new ActionSummary(actionId, title, 0, ActionKind.ChargerSim));
+        await _state.WriteStateAsync();
+        return actionId;
+    }
+
     public async Task SetActive(string actionId)
     {
-        if (_state.State.Actions.All(a => a.Id != actionId))
+        var action = _state.State.Actions.FirstOrDefault(a => a.Id == actionId)
+            ?? throw new InvalidOperationException("Unknown action id for this presenter.");
+
+        // Activating a ChargerSim action also flips its action grain on so
+        // attendees can use their control panels.
+        if (action.Kind == ActionKind.ChargerSim)
         {
-            throw new InvalidOperationException("Unknown action id for this presenter.");
+            await GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).Activate();
         }
 
-        await GrainFactory.GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey).SetFocus(actionId);
+        await GrainFactory.GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey).SetFocus(actionId, action.Kind);
         _state.State.ActiveActionId = actionId;
         await _state.WriteStateAsync();
     }
 
     public async Task ClearActive()
     {
+        // If a ChargerSim action was live, deactivate its action grain too so
+        // attendee controls lock out.
+        var active = _state.State.Actions.FirstOrDefault(a => a.Id == _state.State.ActiveActionId);
+        if (active is { Kind: ActionKind.ChargerSim })
+        {
+            await GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(active.Id)).Deactivate();
+        }
+
         await GrainFactory.GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey).ClearFocus();
         _state.State.ActiveActionId = null;
         await _state.WriteStateAsync();
