@@ -39,14 +39,34 @@
     presenter: '#818cf8',
     attendee: '#34d399',
     multiplechoice: '#fbbf24',
-    presentation: '#f472b6'
+    presentation: '#f472b6',
+    charger: '#38bdf8',
+    attendeechargersim: '#2dd4bf',
+    attendeechargeraggregate: '#a78bfa',
+    chargersimaction: '#fb923c'
   };
   const LABELS: Record<string, string> = {
     presenter: 'Presenter',
     attendee: 'Attendee',
     multiplechoice: 'Multiple choice',
-    presentation: 'Presentation'
+    presentation: 'Presentation',
+    charger: 'Sim charger',
+    attendeechargersim: 'Charger fleet',
+    attendeechargeraggregate: 'Fleet aggregate',
+    chargersimaction: 'Charger action'
   };
+
+  // High-volume grain types hidden by default to keep the canvas readable.
+  // Click a legend entry to toggle visibility.
+  const DEFAULT_HIDDEN = new Set(['charger', 'attendeechargersim', 'attendeechargeraggregate', 'chargersimaction']);
+  let hiddenTypes = $state(new Set(DEFAULT_HIDDEN));
+
+  function toggleType(t: string) {
+    const next = new Set(hiddenTypes);
+    if (next.has(t)) next.delete(t);
+    else next.add(t);
+    hiddenTypes = next;
+  }
 
   const typeKey = (grainId: string) => grainId.split('/')[0];
   const keyPart = (grainId: string) => grainId.slice(grainId.indexOf('/') + 1);
@@ -76,7 +96,40 @@
   let collapsed = $state(true);
   let grainCount = $state(0);
   let siloCount = $state(0);
-  let legend = $state<{ type: string; label: string; color: string; count: number }[]>([]);
+  let legend = $state<{ type: string; label: string; color: string; count: number; hidden: boolean }[]>([]);
+
+  // Last activation snapshot — reactive so the $effect below re-runs on changes.
+  let lastActivations = $state<ActiveGrain[]>([]);
+
+  // Re-sync the visualization and legend whenever the snapshot or hidden-types set changes.
+  $effect(() => {
+    const app = lastActivations.filter(isAppGrain);
+    const visible = app.filter((g) => !hiddenTypes.has(typeKey(g.grainId)));
+    const grains: GrainInput[] = visible.map((g) => ({
+      id: g.grainId,
+      type: typeKey(g.grainId),
+      silo: g.siloAddress,
+      label: keyPart(g.grainId)
+    }));
+    viz?.setGrains(grains);
+
+    grainCount = visible.length;
+    siloCount = new Set(app.map((g) => g.siloAddress)).size;
+    const counts = new Map<string, number>();
+    for (const g of app) {
+      const t = typeKey(g.grainId);
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    legend = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([type, count]) => ({
+        type,
+        label: labelForType(type),
+        color: colorForType(type),
+        count,
+        hidden: hiddenTypes.has(type)
+      }));
+  });
 
   // De-dupe seen calls; skip replaying the history that exists on first poll.
   let seen = new Set<string>();
@@ -103,26 +156,9 @@
     }
   }
 
-  // Reconcile the activation snapshot into the visualization. The viz keeps
-  // nodes long-lived; we just hand it the current set.
+  // Store the latest activation snapshot; the $effect above handles reconciliation.
   function applySnapshot(activations: ActiveGrain[]) {
-    const app = activations.filter(isAppGrain);
-    const grains: GrainInput[] = app.map((g) => ({
-      id: g.grainId,
-      type: typeKey(g.grainId),
-      silo: g.siloAddress,
-      label: keyPart(g.grainId)
-    }));
-    viz?.setGrains(grains);
-
-    // Header + legend bookkeeping.
-    grainCount = app.length;
-    siloCount = new Set(app.map((g) => g.siloAddress)).size;
-    const counts = new Map<string, number>();
-    for (const g of grains) counts.set(g.type, (counts.get(g.type) ?? 0) + 1);
-    legend = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([type, count]) => ({ type, label: labelForType(type), color: colorForType(type), count }));
+    lastActivations = activations;
   }
 
   function ingestCalls(list: CallRecord[]) {
@@ -226,7 +262,8 @@
           {#if collapsed}
             Show live cluster view
           {:else}
-            {grainCount} grain{grainCount === 1 ? '' : 's'} · {siloCount} silo{siloCount === 1 ? '' : 's'}
+            {@const total = legend.reduce((s, l) => s + l.count, 0)}
+            {grainCount} grain{grainCount === 1 ? '' : 's'} · {siloCount} silo{siloCount === 1 ? '' : 's'}{#if grainCount < total} · {total - grainCount} hidden{/if}
           {/if}
         </span>
       </span>
@@ -263,15 +300,25 @@
       {/if}
     </div>
 
-    <!-- Legend -->
+    <!-- Legend — click any entry to hide/show that grain type in the canvas -->
     {#if legend.length > 0}
       <div class="flex flex-wrap gap-x-4 gap-y-1.5 border-t border-slate-800 px-5 py-3">
         {#each legend as item (item.type)}
-          <span class="inline-flex items-center gap-1.5 text-xs text-slate-400">
-            <span class="h-2 w-2 rounded-full" style="background:{item.color}"></span>
+          <button
+            type="button"
+            onclick={() => toggleType(item.type)}
+            class="inline-flex items-center gap-1.5 text-xs transition-opacity {item.hidden
+              ? 'opacity-40 hover:opacity-70'
+              : 'text-slate-400 hover:opacity-80'}"
+            title={item.hidden ? `Show ${item.label} grains` : `Hide ${item.label} grains`}
+          >
+            <span
+              class="h-2 w-2 shrink-0 rounded-full border"
+              style="background:{item.hidden ? 'transparent' : item.color}; border-color:{item.color}"
+            ></span>
             {item.label}
             <span class="tabular-nums text-slate-500">· {item.count}</span>
-          </span>
+          </button>
         {/each}
       </div>
     {/if}
