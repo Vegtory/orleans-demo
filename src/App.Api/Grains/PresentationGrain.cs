@@ -41,6 +41,8 @@ public sealed class PresentationGrain : Grain, IPresentationGrain
 
     public Task<string?> GetFocus() => Task.FromResult(_state.State.FocusedActionId);
 
-    public Task<ActionKind?> GetFocusKind() => Task.FromResult(
-        _state.State.FocusedActionId is null ? (ActionKind?)null : _state.State.FocusedKind);
+    public Task<PresentationFocus?> GetFocusInfo() => Task.FromResult(
+        _state.State.FocusedActionId is { } id
+            ? new PresentationFocus(id, _state.State.FocusedKind)
+            : null);
 }

@@ -3,17 +3,14 @@ using App.Api.GrainContracts;
 namespace App.Api.Grains;
 
 /// <summary>
-/// Persisted aggregate state for one attendee: the last known contribution per
+/// In-memory aggregate state for one attendee: the last known contribution per
 /// charger, plus the running fleet summary it maintains incrementally.
 /// </summary>
-[GenerateSerializer]
-public sealed class AttendeeChargerAggregateState
+internal sealed class AttendeeChargerAggregateState
 {
     /// <summary>Last known absolute contribution per charger id.</summary>
-    [Id(0)]
-    public Dictionary<string, ChargerAggregateContribution> Contributions { get; set; } = new();
+    public Dictionary<string, ChargerAggregateContribution> Contributions { get; } = new();
 
-    [Id(1)]
     public ChargerFleetSummary Summary { get; set; } = new();
 }
 
@@ -22,66 +19,62 @@ public sealed class AttendeeChargerAggregateState
 /// each charger and keeps a live <see cref="ChargerFleetSummary"/> without ever
 /// reaching back out to the individual charger grains. Updates are idempotent and
 /// order-independent thanks to the per-charger version check.
+///
+/// This state is deliberately NOT persisted: it is a live roll-up that every
+/// charger re-publishes on each 30-second tick and after every command, so it is
+/// fully reconstructed within one tick if the grain is reactivated. Persisting it
+/// would add a storage write on every contribution (potentially tens of thousands
+/// per attendee per tick) for data we never need to durably keep.
 /// </summary>
 public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggregateGrain
 {
-    private readonly IPersistentState<AttendeeChargerAggregateState> _state;
-
-    public AttendeeChargerAggregateGrain(
-        [PersistentState("chargerAggregate", "store")] IPersistentState<AttendeeChargerAggregateState> state)
-    {
-        _state = state;
-    }
+    private readonly AttendeeChargerAggregateState _state = new();
 
     public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
         // The attendee id is the middle segment of the grain key
         // "action-{actionId}/attendee-{attendeeId}/aggregate".
-        if (string.IsNullOrEmpty(_state.State.Summary.AttendeeId))
+        var parts = this.GetPrimaryKeyString().Split('/');
+        if (parts.Length >= 2 && parts[1].StartsWith("attendee-", StringComparison.Ordinal))
         {
-            var parts = this.GetPrimaryKeyString().Split('/');
-            if (parts.Length >= 2 && parts[1].StartsWith("attendee-", StringComparison.Ordinal))
-            {
-                _state.State.Summary.AttendeeId = parts[1]["attendee-".Length..];
-            }
+            _state.Summary.AttendeeId = parts[1]["attendee-".Length..];
         }
 
         return base.OnActivateAsync(cancellationToken);
     }
 
-    public async Task<ChargerFleetSummary> UpsertContribution(ChargerAggregateContribution contribution)
+    public Task<ChargerFleetSummary> UpsertContribution(ChargerAggregateContribution contribution)
     {
-        var summary = _state.State.Summary;
+        var summary = _state.Summary;
 
-        if (_state.State.Contributions.TryGetValue(contribution.ChargerId, out var previous))
+        if (_state.Contributions.TryGetValue(contribution.ChargerId, out var previous))
         {
             // Ignore duplicate or out-of-order updates.
             if (contribution.Version <= previous.Version)
             {
-                return summary;
+                return Task.FromResult(summary);
             }
 
             Apply(summary, previous, -1);
         }
 
         Apply(summary, contribution, +1);
-        _state.State.Contributions[contribution.ChargerId] = contribution;
+        _state.Contributions[contribution.ChargerId] = contribution;
 
-        summary.TotalChargers = _state.State.Contributions.Count;
+        summary.TotalChargers = _state.Contributions.Count;
         if (contribution.UpdatedAt > summary.LastUpdatedAt)
         {
             summary.LastUpdatedAt = contribution.UpdatedAt;
         }
 
-        await _state.WriteStateAsync();
-        return summary;
+        return Task.FromResult(summary);
     }
 
-    public Task<ChargerFleetSummary> GetSummary() => Task.FromResult(_state.State.Summary);
+    public Task<ChargerFleetSummary> GetSummary() => Task.FromResult(_state.Summary);
 
     public Task<IReadOnlyList<ChargerAggregateContribution>> GetRecentContributions(int take)
     {
-        IReadOnlyList<ChargerAggregateContribution> recent = _state.State.Contributions.Values
+        IReadOnlyList<ChargerAggregateContribution> recent = _state.Contributions.Values
             .OrderByDescending(c => c.UpdatedAt)
             .Take(Math.Max(0, take))
             .ToList();
@@ -90,7 +83,7 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
 
     public Task<IReadOnlyList<string>> SelectChargerIds(ChargerSelectionFilter filter, int take)
     {
-        IReadOnlyList<string> ids = _state.State.Contributions.Values
+        IReadOnlyList<string> ids = _state.Contributions.Values
             .Where(c => Matches(c, filter))
             .Take(Math.Max(0, take))
             .Select(c => c.ChargerId)
@@ -100,7 +93,7 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
 
     public Task<string?> GetRandomChargerInState(ChargerSimState state)
     {
-        var candidates = _state.State.Contributions.Values
+        var candidates = _state.Contributions.Values
             .Where(c => c.State == state)
             .ToList();
 
@@ -112,12 +105,12 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
         return Task.FromResult<string?>(candidates[Random.Shared.Next(candidates.Count)].ChargerId);
     }
 
-    public async Task Reset()
+    public Task Reset()
     {
-        var attendeeId = _state.State.Summary.AttendeeId;
-        _state.State.Contributions.Clear();
-        _state.State.Summary = new ChargerFleetSummary { AttendeeId = attendeeId };
-        await _state.WriteStateAsync();
+        var attendeeId = _state.Summary.AttendeeId;
+        _state.Contributions.Clear();
+        _state.Summary = new ChargerFleetSummary { AttendeeId = attendeeId };
+        return Task.CompletedTask;
     }
 
     private static bool Matches(ChargerAggregateContribution c, ChargerSelectionFilter filter) => filter switch

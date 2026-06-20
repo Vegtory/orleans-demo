@@ -10,9 +10,6 @@ public sealed class ChargerSimActionState
 
     /// <summary>Attendee ids (their attendee grain keys) that have joined this action.</summary>
     [Id(1)] public HashSet<string> Attendees { get; set; } = new();
-
-    /// <summary>Recent human-readable event messages, newest last.</summary>
-    [Id(2)] public List<string> RecentEvents { get; set; } = new();
 }
 
 /// <summary>
@@ -26,6 +23,13 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
     private const int MaxEvents = 25;
 
     private readonly IPersistentState<ChargerSimActionState> _state;
+
+    // The recent-events ticker is live, throwaway UI data, so it is kept in
+    // memory rather than persisted. This is also what makes RecordEvent safe to
+    // mark [AlwaysInterleave]: with no WriteStateAsync there is no await, so
+    // concurrent RecordEvent calls (e.g. several attendees during KillAllChargers)
+    // run to completion in a single turn and cannot race on the storage etag.
+    private readonly LinkedList<string> _recentEvents = new();
     private string _actionId = "";
 
     public ChargerSimActionGrain(
@@ -90,7 +94,8 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
         var global = Combine(summaries);
         global.AttendeeName = "All attendees";
 
-        var events = _state.State.RecentEvents.AsEnumerable().Reverse().ToArray();
+        // Newest first.
+        var events = _recentEvents.ToArray();
         return new ChargerSimDashboard(_state.State.Active, global, summaries.ToArray(), events);
     }
 
@@ -106,15 +111,16 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
         await RecordEvent("Presenter killed all chargers");
     }
 
-    public async Task RecordEvent(string message)
+    public Task RecordEvent(string message)
     {
-        _state.State.RecentEvents.Add(message);
-        if (_state.State.RecentEvents.Count > MaxEvents)
+        // In-memory only and synchronous (no await): see _recentEvents.
+        _recentEvents.AddFirst(message);
+        while (_recentEvents.Count > MaxEvents)
         {
-            _state.State.RecentEvents.RemoveRange(0, _state.State.RecentEvents.Count - MaxEvents);
+            _recentEvents.RemoveLast();
         }
 
-        await _state.WriteStateAsync();
+        return Task.CompletedTask;
     }
 
     // Rolls per-attendee summaries into a single global summary. This reads N
