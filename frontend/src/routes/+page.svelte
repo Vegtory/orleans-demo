@@ -93,7 +93,40 @@
     name = '';
   }
 
-  onDestroy(() => { if (poll) clearInterval(poll); });
+  // The reactions an attendee can send. Each maps a stable server-side `kind`
+  // token to the emoji shown on the button (and floated on the presenter view).
+  const reactions = [
+    { kind: 'heart', emoji: '❤️', label: 'Heart' },
+    { kind: 'thumbs', emoji: '👍', label: 'Thumbs up' },
+    { kind: 'question', emoji: '❓', label: 'Question' }
+  ];
+
+  // Briefly-pressed reaction kind, used to pop the button for tactile feedback.
+  let popped = $state<string | null>(null);
+  let popTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Fire-and-forget: the reaction floats up on the presenter view. Failures are
+  // swallowed — a dropped reaction isn't worth interrupting the attendee.
+  async function react(kind: string) {
+    if (!key) return;
+    popped = kind;
+    if (popTimer) clearTimeout(popTimer);
+    popTimer = setTimeout(() => (popped = null), 250);
+    try {
+      await fetch(`/api/attendee/${encodeURIComponent(key)}/reaction`, {
+        method: 'POST',
+        headers: { ...sessionHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind })
+      });
+    } catch {
+      /* ignore — reactions are best-effort */
+    }
+  }
+
+  onDestroy(() => {
+    if (poll) clearInterval(poll);
+    if (popTimer) clearTimeout(popTimer);
+  });
 </script>
 
 <div class="mx-auto flex min-h-screen w-full max-w-xl flex-col px-4 py-8">
@@ -202,6 +235,27 @@
           <p class="mt-1 text-sm text-slate-400">The next question will appear here automatically.</p>
         </div>
       {/if}
+
+      <!-- Reactions: always available once joined. Each tap floats the emoji up
+           on the presenter's screen. -->
+      <div class="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p class="mb-3 text-center text-xs font-medium uppercase tracking-wide text-slate-400">
+          Send a reaction
+        </p>
+        <div class="flex items-center justify-center gap-3">
+          {#each reactions as r}
+            <button
+              type="button"
+              onclick={() => react(r.kind)}
+              aria-label={r.label}
+              class="flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-2xl shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 active:scale-90
+                {popped === r.kind ? 'scale-90 border-indigo-300 bg-indigo-50' : ''}"
+            >
+              {r.emoji}
+            </button>
+          {/each}
+        </div>
+      </div>
     </div>
   {/if}
 
