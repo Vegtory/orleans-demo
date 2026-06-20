@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { presenterSession, sessionHeaders } from '$lib/session';
-  import ClusterView from '$lib/ClusterView.svelte';
+  import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
 
   interface ActionSummary { id: string; title: string; optionCount: number; }
   interface PresenterView { name: string; actions: ActionSummary[]; activeActionId: string | null; }
@@ -446,9 +446,9 @@
       </section>
     {/if}
 
-    <!-- Cluster activity: active grain counts + live silo/communication map. -->
+    <!-- Cluster activity: live, physics-driven canvas of grains inside silos. -->
     <div class="mt-6">
-      <ClusterView {password} />
+      <SiloGrainCanvas {password} />
     </div>
   {/if}
 
