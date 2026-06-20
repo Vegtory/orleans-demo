@@ -141,8 +141,11 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
         await _state.WriteStateAsync();
         if (enabled)
         {
-            await KillAllChargers();
             await RecordEvent("Kill switch engaged");
+            // Fire-and-forget: the state is already persisted so the aggregate grain
+            // will enforce the switch on every charger tick. The sweep below catches
+            // grains that are currently alive without waiting for a tick.
+            _ = KillAllChargers();
         }
         else
         {
