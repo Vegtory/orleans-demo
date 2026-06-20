@@ -64,6 +64,12 @@ public sealed class ClusterObservabilityTests
     {
         var recorder = _cluster.GrainFactory.GetGrain<IClusterCallRecorderGrain>(0);
 
+        // Tracing is off by default, so opt in and wait for the silo switch to flip.
+        var runtimeSwitch = ((InProcessSiloHandle)_cluster.Primary)
+            .SiloHost.Services.GetRequiredService<CallTraceRuntimeSwitch>();
+        await _cluster.GrainFactory.GetGrain<IClusterTraceControlGrain>(0).SetEnabled(true);
+        await PollUntilTrue(() => runtimeSwitch.IsEnabled);
+
         // A real grain-to-grain call: PresenterGrain -> MultipleChoiceGrain.Configure.
         var presenterKey = $"bob-{Guid.NewGuid():N}";
         var presenter = _cluster.GrainFactory.GetGrain<IPresenterGrain>(presenterKey);
@@ -97,14 +103,14 @@ public sealed class ClusterObservabilityTests
         var control = _cluster.GrainFactory.GetGrain<IClusterTraceControlGrain>(424_242);
 
         var initial = await control.GetState();
-        Assert.True(initial.Enabled);
+        Assert.False(initial.Enabled); // tracing is off by default
 
-        await control.SetEnabled(true); // no-op: same value
+        await control.SetEnabled(false); // no-op: same value
         Assert.Equal(initial.Version, (await control.GetState()).Version);
 
-        await control.SetEnabled(false); // real change
+        await control.SetEnabled(true); // real change
         var changed = await control.GetState();
-        Assert.False(changed.Enabled);
+        Assert.True(changed.Enabled);
         Assert.Equal(initial.Version + 1, changed.Version);
     }
 

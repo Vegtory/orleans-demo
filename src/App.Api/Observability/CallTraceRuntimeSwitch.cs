@@ -9,8 +9,8 @@ namespace App.Api.Observability;
 /// </summary>
 public sealed class CallTraceRuntimeSwitch
 {
-    // Tracing is on by default until the first toggle poll says otherwise.
-    private int _enabled = 1;
+    // Tracing is off by default until the first toggle poll says otherwise.
+    private int _enabled = 0;
 
     public bool IsEnabled => Volatile.Read(ref _enabled) == 1;
 
