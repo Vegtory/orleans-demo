@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using App.Api.GrainContracts;
 using App.Api.Observability;
 using Microsoft.AspNetCore.RateLimiting;
+using Orleans.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -38,13 +39,23 @@ builder.Host.UseOrleans(silo =>
 
         silo.AddAzureTableGrainStorage("store", options =>
             options.TableServiceClient = new Azure.Data.Tables.TableServiceClient(connectionString));
+
+        // Durable reminders for ChargerSim's per-charger 30s ticks.
+        silo.UseAzureTableReminderService(options =>
+            options.TableServiceClient = new Azure.Data.Tables.TableServiceClient(connectionString));
     }
     else
     {
         // Local development / single-replica demo only.
         silo.UseLocalhostClustering();
         silo.AddMemoryGrainStorage("store");
+        silo.UseInMemoryReminderService();
     }
+
+    // ChargerSim registers reminders on a 30-second period; Orleans' default
+    // minimum reminder period is one minute, so lower it for the demo.
+    silo.Configure<ReminderOptions>(options =>
+        options.MinimumReminderPeriod = TimeSpan.FromSeconds(15));
 
     // -----------------------------------------------------------------------
     // Debug/demo cluster observability (powers the presenter "cluster activity"
@@ -194,6 +205,32 @@ api.MapPost("/presenter/{key}/actions", async (string key, CreateActionRequest b
     return Results.Ok(new { actionId });
 });
 
+api.MapPost("/presenter/{key}/chargersim", async (string key, CreateChargerSimRequest body, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    var title = string.IsNullOrWhiteSpace(body.Title) ? "Charger fleet simulation" : body.Title.Trim();
+    var actionId = await grains.GetGrain<IPresenterGrain>(key).CreateChargerSim(title);
+    return Results.Ok(new { actionId });
+});
+
+// Presenter ChargerSim dashboard: global + per-attendee summaries + event ticker,
+// served from the action grain (which reads aggregate grains, never chargers).
+api.MapGet("/presenter/{key}/chargersim/{actionId}/dashboard", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    var dashboard = await grains
+        .GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId))
+        .GetDashboard();
+    return Results.Ok(dashboard);
+});
+
+api.MapPost("/presenter/{key}/chargersim/{actionId}/killall", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).KillAllChargers();
+    return Results.Ok(new { killed = true });
+});
+
 api.MapPost("/presenter/{key}/actions/{actionId}/activate", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();
@@ -297,6 +334,93 @@ api.MapPost("/attendee/{key}/answer", async (string key, AnswerRequest body, IGr
     }
 });
 
+// --- Attendee ChargerSim (no password) ---------------------------------------
+//
+// All routes go through the attendee's controller grain, which enforces that the
+// action is active and that the attendee owns the targeted chargers. The grain
+// key is "action-{actionId}/attendee-{attendeeKey}".
+
+static IAttendeeChargerSimGrain ChargerSimAttendee(IGrainFactory grains, string actionId, string attendeeKey) =>
+    grains.GetGrain<IAttendeeChargerSimGrain>(ChargerSimKeys.Attendee(actionId, attendeeKey));
+
+static IResult ChargerSimError(InvalidOperationException ex) =>
+    Results.Conflict(new { error = ex.Message });
+
+// Idempotent join: records the attendee's name and registers them with the action.
+api.MapPost("/chargersim/{actionId}/attendee/{key}/register", async (string actionId, string key, NameRequest body, IGrainFactory grains) =>
+{
+    await ChargerSimAttendee(grains, actionId, key).Register(body.Name ?? "");
+    return Results.Ok(new { registered = true });
+});
+
+api.MapGet("/chargersim/{actionId}/attendee/{key}/summary", async (string actionId, string key, IGrainFactory grains) =>
+    Results.Ok(await ChargerSimAttendee(grains, actionId, key).GetSummary()));
+
+api.MapPost("/chargersim/{actionId}/attendee/{key}/create", async (string actionId, string key, AmountRequest body, IGrainFactory grains) =>
+{
+    try
+    {
+        var total = await ChargerSimAttendee(grains, actionId, key).CreateChargers(body.Amount);
+        return Results.Ok(new { total });
+    }
+    catch (InvalidOperationException ex) { return ChargerSimError(ex); }
+});
+
+api.MapPost("/chargersim/{actionId}/attendee/{key}/batch", async (string actionId, string key, BatchRequest body, IGrainFactory grains) =>
+{
+    if (!Enum.TryParse<BatchChargerCommandType>(body.Command, ignoreCase: true, out var command))
+    {
+        return Results.BadRequest(new { error = $"unknown command '{body.Command}'" });
+    }
+
+    try
+    {
+        var amount = body.Amount <= 0 ? IAttendeeChargerSimGrain.DefaultBatchSize : body.Amount;
+        await ChargerSimAttendee(grains, actionId, key).SendBatchCommand(command, amount);
+        return Results.Ok(new { accepted = true });
+    }
+    catch (InvalidOperationException ex) { return ChargerSimError(ex); }
+});
+
+api.MapPost("/chargersim/{actionId}/attendee/{key}/kill", async (string actionId, string key, IGrainFactory grains) =>
+{
+    await ChargerSimAttendee(grains, actionId, key).KillMyChargers();
+    return Results.Ok(new { killed = true });
+});
+
+api.MapGet("/chargersim/{actionId}/attendee/{key}/charger/{chargerId}", async (string actionId, string key, string chargerId, IGrainFactory grains) =>
+{
+    var snapshot = await ChargerSimAttendee(grains, actionId, key).GetCharger(chargerId);
+    return snapshot is null ? Results.NotFound() : Results.Ok(snapshot);
+});
+
+api.MapGet("/chargersim/{actionId}/attendee/{key}/charger/random/{state}", async (string actionId, string key, string state, IGrainFactory grains) =>
+{
+    var attendee = ChargerSimAttendee(grains, actionId, key);
+    var snapshot = state.ToLowerInvariant() switch
+    {
+        "active" => await attendee.GetRandomActiveCharger(),
+        "paused" => await attendee.GetRandomPausedCharger(),
+        _ => null
+    };
+    return snapshot is null ? Results.NotFound() : Results.Ok(snapshot);
+});
+
+api.MapPost("/chargersim/{actionId}/attendee/{key}/charger/{chargerId}/{command}", async (string actionId, string key, string chargerId, string command, IGrainFactory grains) =>
+{
+    if (!Enum.TryParse<SingleChargerCommandType>(command, ignoreCase: true, out var cmd))
+    {
+        return Results.BadRequest(new { error = $"unknown command '{command}'" });
+    }
+
+    try
+    {
+        var snapshot = await ChargerSimAttendee(grains, actionId, key).CommandCharger(chargerId, cmd);
+        return snapshot is null ? Results.NotFound() : Results.Ok(snapshot);
+    }
+    catch (InvalidOperationException ex) { return ChargerSimError(ex); }
+});
+
 // Unmatched /api/* routes return 404 (JSON) rather than falling through to the
 // SPA fallback below and serving index.html.
 api.MapFallback(() => Results.NotFound());
@@ -312,3 +436,6 @@ internal sealed record NameRequest(string Name);
 internal sealed record CreateActionRequest(string Title, string[]? Options);
 internal sealed record AnswerRequest(int OptionIndex);
 internal sealed record TraceToggleRequest(bool Enabled);
+internal sealed record CreateChargerSimRequest(string Title);
+internal sealed record AmountRequest(int Amount);
+internal sealed record BatchRequest(string Command, int Amount);

@@ -14,6 +14,11 @@
     <!-- Orleans silo (co-hosted in this ASP.NET Core process). -->
     <PackageReference Include="Microsoft.Orleans.Server" Version="10.2.0" />
 
+    <!-- Reminders: ChargerSim gives every charger grain its own 30s reminder.
+         In-memory in Local mode, Azure Tables in AzureStorage mode. -->
+    <PackageReference Include="Microsoft.Orleans.Reminders" Version="10.2.0" />
+    <PackageReference Include="Microsoft.Orleans.Reminders.AzureStorage" Version="10.2.0" />
+
     <!-- Azure Storage clustering + grain persistence (only used when
          ORLEANS_CLUSTERING=AzureStorage; never activated in Local mode).
          These also bring in Azure.Data.Tables transitively. -->

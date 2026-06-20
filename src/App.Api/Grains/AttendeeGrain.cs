@@ -35,13 +35,18 @@ public sealed class AttendeeGrain : Grain, IAttendeeGrain
 
     public async Task<AttendeeView> GetState()
     {
-        var focusId = await GrainFactory
-            .GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey)
-            .GetFocus();
+        var presentation = GrainFactory.GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey);
+        var focusId = await presentation.GetFocus();
 
         if (focusId is null)
         {
             return new AttendeeView(_state.State.Name, Focus: null, YourAnswer: null);
+        }
+
+        var kind = await presentation.GetFocusKind();
+        if (kind == ActionKind.ChargerSim)
+        {
+            return new AttendeeView(_state.State.Name, Focus: null, YourAnswer: null, ChargerSimActionId: focusId);
         }
 
         var action = GrainFactory.GetGrain<IMultipleChoiceGrain>(focusId);
@@ -52,11 +57,11 @@ public sealed class AttendeeGrain : Grain, IAttendeeGrain
 
     public async Task<bool> Answer(int optionIndex)
     {
-        var focusId = await GrainFactory
-            .GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey)
-            .GetFocus();
+        var presentation = GrainFactory.GetGrain<IPresentationGrain>(IPresentationGrain.GlobalKey);
+        var focusId = await presentation.GetFocus();
 
-        if (focusId is null)
+        // Only multiple-choice actions accept an indexed answer.
+        if (focusId is null || await presentation.GetFocusKind() != ActionKind.MultipleChoice)
         {
             return false;
         }

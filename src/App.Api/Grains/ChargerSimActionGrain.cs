@@ -1,0 +1,143 @@
+using App.Api.GrainContracts;
+
+namespace App.Api.Grains;
+
+/// <summary>Persisted state for a ChargerSim action.</summary>
+[GenerateSerializer]
+public sealed class ChargerSimActionState
+{
+    [Id(0)] public bool Active { get; set; }
+
+    /// <summary>Attendee ids (their attendee grain keys) that have joined this action.</summary>
+    [Id(1)] public HashSet<string> Attendees { get; set; } = new();
+
+    /// <summary>Recent human-readable event messages, newest last.</summary>
+    [Id(2)] public List<string> RecentEvents { get; set; } = new();
+}
+
+/// <summary>
+/// The top-level ChargerSim action. It gates attendee controls (active/inactive),
+/// tracks which attendees have joined, and rolls their per-attendee aggregate
+/// summaries up into a global view for the presenter — without ever touching the
+/// individual charger grains.
+/// </summary>
+public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
+{
+    private const int MaxEvents = 25;
+
+    private readonly IPersistentState<ChargerSimActionState> _state;
+    private string _actionId = "";
+
+    public ChargerSimActionGrain(
+        [PersistentState("chargerSimAction", "store")] IPersistentState<ChargerSimActionState> state)
+    {
+        _state = state;
+    }
+
+    public override Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        // Key: "action-{actionId}".
+        var key = this.GetPrimaryKeyString();
+        _actionId = key.StartsWith("action-", StringComparison.Ordinal) ? key["action-".Length..] : key;
+        return base.OnActivateAsync(cancellationToken);
+    }
+
+    public async Task Activate()
+    {
+        _state.State.Active = true;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task Deactivate()
+    {
+        _state.State.Active = false;
+        await _state.WriteStateAsync();
+    }
+
+    public Task<bool> IsActive() => Task.FromResult(_state.State.Active);
+
+    public async Task RegisterAttendee(string attendeeId)
+    {
+        if (_state.State.Attendees.Add(attendeeId))
+        {
+            await _state.WriteStateAsync();
+        }
+    }
+
+    public async Task<IReadOnlyList<ChargerFleetSummary>> GetAllAttendeeSummaries()
+    {
+        var tasks = _state.State.Attendees
+            .Select(id => GrainFactory
+                .GetGrain<IAttendeeChargerSimGrain>(ChargerSimKeys.Attendee(_actionId, id))
+                .GetSummary())
+            .ToList();
+
+        var summaries = await Task.WhenAll(tasks);
+        return summaries
+            .OrderByDescending(s => s.TotalChargers)
+            .ToList();
+    }
+
+    public async Task<ChargerFleetSummary> GetGlobalSummary()
+    {
+        var summaries = await GetAllAttendeeSummaries();
+        return Combine(summaries);
+    }
+
+    public async Task<ChargerSimDashboard> GetDashboard()
+    {
+        var summaries = await GetAllAttendeeSummaries();
+        var global = Combine(summaries);
+        global.AttendeeName = "All attendees";
+
+        var events = _state.State.RecentEvents.AsEnumerable().Reverse().ToArray();
+        return new ChargerSimDashboard(_state.State.Active, global, summaries.ToArray(), events);
+    }
+
+    public async Task KillAllChargers()
+    {
+        var tasks = _state.State.Attendees
+            .Select(id => GrainFactory
+                .GetGrain<IAttendeeChargerSimGrain>(ChargerSimKeys.Attendee(_actionId, id))
+                .KillMyChargers())
+            .ToList();
+
+        await Task.WhenAll(tasks);
+        await RecordEvent("Presenter killed all chargers");
+    }
+
+    public async Task RecordEvent(string message)
+    {
+        _state.State.RecentEvents.Add(message);
+        if (_state.State.RecentEvents.Count > MaxEvents)
+        {
+            _state.State.RecentEvents.RemoveRange(0, _state.State.RecentEvents.Count - MaxEvents);
+        }
+
+        await _state.WriteStateAsync();
+    }
+
+    // Rolls per-attendee summaries into a single global summary. This reads N
+    // attendee aggregate grains (one per attendee), never the chargers themselves.
+    private static ChargerFleetSummary Combine(IReadOnlyList<ChargerFleetSummary> summaries)
+    {
+        var global = new ChargerFleetSummary { AttendeeId = "*" };
+        foreach (var s in summaries)
+        {
+            global.TotalChargers += s.TotalChargers;
+            global.NoSessionCount += s.NoSessionCount;
+            global.ActiveSessionCount += s.ActiveSessionCount;
+            global.PausedWithSessionCount += s.PausedWithSessionCount;
+            global.KilledCount += s.KilledCount;
+            global.ChargersWithSessionCount += s.ChargersWithSessionCount;
+            global.TotalActivePowerKw += s.TotalActivePowerKw;
+            global.TotalSessionKwh += s.TotalSessionKwh;
+            if (s.LastUpdatedAt > global.LastUpdatedAt)
+            {
+                global.LastUpdatedAt = s.LastUpdatedAt;
+            }
+        }
+
+        return global;
+    }
+}
