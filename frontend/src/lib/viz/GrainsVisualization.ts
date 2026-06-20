@@ -54,8 +54,8 @@ export interface GrainsVizOptions {
 
 // --- Tunable physics / animation constants ---------------------------------
 const CENTER_PULL = 0.012; // spring strength toward the assigned silo centre
-const REPEL = 0.9; // local repulsion strength between silo-mates
-const REPEL_RANGE = 30; // px; repulsion only acts within this radius
+const REPEL = 1.1; // local repulsion strength between silo-mates
+const REPEL_RANGE = 44; // px; repulsion only acts within this radius
 const WALL_PUSH = 0.06; // soft containment force near a silo's inner edge
 const DAMPING = 0.86; // velocity damping per frame
 const MAX_SPEED = 6; // px/frame clamp to keep things stable
@@ -522,7 +522,7 @@ export class GrainsVisualization {
     const pulse = (Math.sin(now / 220) + 1) / 2; // 0..1, shared pulse phase
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.font = '600 9px ui-sans-serif, system-ui, sans-serif';
+    ctx.font = '600 8px ui-sans-serif, system-ui, sans-serif';
     ctx.lineJoin = 'round';
 
     for (const node of this.nodes.values()) {
@@ -566,11 +566,11 @@ export class GrainsVisualization {
       // fill) so it stays legible over neighbouring grains and card fills.
       const text = node.label.length > 14 ? `${node.label.slice(0, 13)}…` : node.label;
       const ty = node.y + r + 3;
-      ctx.globalAlpha = a * 0.85;
-      ctx.lineWidth = 2.5;
+      ctx.globalAlpha = a * 0.45;
+      ctx.lineWidth = 2;
       ctx.strokeStyle = this.opts.background;
       ctx.strokeText(text, node.x, ty);
-      ctx.fillStyle = 'rgba(226, 232, 240, 0.92)';
+      ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
       ctx.fillText(text, node.x, ty);
     }
     ctx.restore();
