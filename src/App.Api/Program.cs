@@ -202,6 +202,20 @@ api.MapGet("/presenter/attendees", async (HttpRequest req, IGrainFactory grains)
     return Results.Ok(roster);
 });
 
+// Recent attendee reactions for the presenter to animate. Global (not tied to a
+// presenter key), like the roster. The presenter passes the last sequence it has
+// already shown via ?since= and gets back only newer events plus the new cursor;
+// omitting it on the first poll returns just the cursor so old reactions aren't
+// replayed. Literal route, so it takes precedence over /presenter/{key}.
+api.MapGet("/presenter/reactions", async (long? since, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    var feed = await grains
+        .GetGrain<IReactionsGrain>(IReactionsGrain.GlobalKey)
+        .GetSince(since);
+    return Results.Ok(feed);
+});
+
 api.MapPost("/presenter/{key}/actions", async (string key, CreateActionRequest body, HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();
@@ -345,6 +359,21 @@ api.MapPost("/attendee", async (NameRequest body, IGrainFactory grains) =>
 api.MapGet("/attendee/{key}", async (string key, IGrainFactory grains) =>
     Results.Ok(await grains.GetGrain<IAttendeeGrain>(key).GetState()));
 
+// Fire-and-forget emoji reaction. Pushed onto the global reaction feed, where the
+// presenter view polls for it and animates it floating up. No password: any
+// attendee can react. Unknown kinds are ignored by the grain.
+api.MapPost("/attendee/{key}/reaction", async (string key, ReactionRequest body, IGrainFactory grains) =>
+{
+    var kind = body.Kind?.Trim() ?? string.Empty;
+    if (!IReactionsGrain.AllowedKinds.Contains(kind))
+    {
+        return Results.BadRequest(new { error = $"unknown reaction '{body.Kind}'" });
+    }
+
+    await grains.GetGrain<IReactionsGrain>(IReactionsGrain.GlobalKey).Push(kind);
+    return Results.Ok(new { accepted = true });
+});
+
 api.MapPost("/attendee/{key}/answer", async (string key, AnswerRequest body, IGrainFactory grains) =>
 {
     try
@@ -466,6 +495,7 @@ app.Run();
 internal sealed record NameRequest(string Name);
 internal sealed record CreateActionRequest(string Title, string[]? Options);
 internal sealed record AnswerRequest(int OptionIndex);
+internal sealed record ReactionRequest(string Kind);
 internal sealed record TraceToggleRequest(bool Enabled);
 internal sealed record CreateChargerSimRequest(string Title);
 internal sealed record AmountRequest(int Amount);
