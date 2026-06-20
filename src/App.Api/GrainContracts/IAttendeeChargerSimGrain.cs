@@ -8,8 +8,8 @@ namespace App.Api.GrainContracts;
 /// </summary>
 public interface IAttendeeChargerSimGrain : IGrainWithStringKey
 {
-    public const int MaxChargers = 10_000;
-    public const int DefaultBatchSize = 1_000;
+    public const int MaxChargers = 5_000;
+    public const int DefaultBatchSize = 100;
 
     /// <summary>Idempotently records the attendee's display name and registers them with the action grain.</summary>
     Task Register(string displayName);

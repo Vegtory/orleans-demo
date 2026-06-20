@@ -27,7 +27,8 @@ public enum BatchChargerCommandType
     StopSessions,
     LowerPowerUsage,
     RandomChaos,
-    Kill
+    Kill,
+    IncreasePowerUsage
 }
 
 /// <summary>A command an attendee can issue against a single opened charger.</summary>
@@ -38,7 +39,8 @@ public enum SingleChargerCommandType
     ResumeCharging,
     StopSession,
     LowerPower,
-    Kill
+    Kill,
+    IncreasePower
 }
 
 /// <summary>Which chargers a batch command should target, resolved from the aggregate snapshot.</summary>
