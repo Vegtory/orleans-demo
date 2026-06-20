@@ -4,11 +4,14 @@
   // The presenter's main-stage ChargerSim dashboard: global totals, per-attendee
   // cards and a big Kill all button. It polls a single grain call (the action
   // grain's dashboard) which rolls up aggregate grains — never the chargers.
-  let { presenterKey, actionId, password, title = 'ChargerSim' }: {
+  let { presenterKey, actionId, password, title = 'ChargerSim', defaultOpen = false }: {
     presenterKey: string;
     actionId: string;
     password: string;
     title?: string;
+    // Start expanded (e.g. on a dedicated overview screen) instead of the
+    // default collapsed state used inside the presenter's action list.
+    defaultOpen?: boolean;
   } = $props();
 
   interface FleetSummary {
@@ -36,7 +39,8 @@
   let error = $state<string | null>(null);
   let loading = $state(true);
   let togglePending = $state(false);
-  let open = $state(false);
+  // svelte-ignore state_referenced_locally -- intentional: seed once from the prop
+  let open = $state(defaultOpen);
 
   const base = $derived(`/api/presenter/${encodeURIComponent(presenterKey)}/chargersim/${encodeURIComponent(actionId)}`);
 
