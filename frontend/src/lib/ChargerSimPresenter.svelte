@@ -29,6 +29,7 @@
     global: FleetSummary;
     attendees: FleetSummary[];
     recentEvents: string[];
+    killSwitchEnabled: boolean;
   }
 
   let dash = $state<Dashboard | null>(null);
@@ -100,7 +101,7 @@
       <span class="text-base font-bold tracking-tight">⚡ {title}</span>
       <span class="ml-2 text-sm text-slate-400">ChargerSim dashboard</span>
     </div>
-    <span class="text-slate-400 transition-transform duration-200" class:rotate-180={open}>▾</span>
+    <span class="text-slate-400 transition-transform duration-200 {open ? 'rotate-180' : ''}">▾</span>
   </button>
 
   {#if open}
@@ -108,24 +109,23 @@
       <div class="flex items-center justify-between">
         <p class="text-sm text-slate-400">Live fleet across all attendees</p>
         <!-- Kill switch toggle -->
-        <label class="flex cursor-pointer items-center gap-3 {busy ? 'opacity-50 pointer-events-none' : ''}">
+        <button
+          role="switch"
+          aria-checked={dash?.killSwitchEnabled ?? false}
+          aria-label="Kill switch"
+          disabled={busy}
+          onclick={() => setKillSwitch(!(dash?.killSwitchEnabled ?? false))}
+          class="flex items-center gap-3 disabled:opacity-50"
+        >
           <span class="text-sm font-semibold {dash?.killSwitchEnabled ? 'text-red-300' : 'text-slate-400'}">Kill switch</span>
-          <button
-            role="switch"
-            aria-checked={dash?.killSwitchEnabled ?? false}
-            disabled={busy}
-            onclick={() => setKillSwitch(!(dash?.killSwitchEnabled ?? false))}
-            class="relative inline-flex h-7 w-14 shrink-0 items-center rounded-full border-2 transition-colors duration-200
-              {dash?.killSwitchEnabled
-                ? 'border-red-500 bg-red-600'
-                : 'border-slate-600 bg-slate-700'}"
+          <span
+            class="relative inline-flex h-7 w-14 shrink-0 items-center rounded-full border-2 transition-colors duration-200 {dash?.killSwitchEnabled ? 'border-red-500 bg-red-600' : 'border-slate-600 bg-slate-700'}"
           >
             <span
-              class="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200
-                {dash?.killSwitchEnabled ? 'translate-x-7' : 'translate-x-1'}"
+              class="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 {dash?.killSwitchEnabled ? 'translate-x-7' : 'translate-x-1'}"
             ></span>
-          </button>
-        </label>
+          </span>
+        </button>
       </div>
 
       <!-- Big global numbers -->
