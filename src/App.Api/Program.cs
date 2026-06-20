@@ -190,6 +190,18 @@ api.MapGet("/presenter/{key}", async (string key, HttpRequest req, IGrainFactory
     return Results.Ok(await grains.GetGrain<IPresenterGrain>(key).GetState());
 });
 
+// The live attendee roster: everyone who has called the presentation within the
+// active window. Global (not tied to a presenter key), so it lives on a literal
+// route that takes precedence over /presenter/{key}.
+api.MapGet("/presenter/attendees", async (HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    var roster = await grains
+        .GetGrain<IAttendeeRosterGrain>(IAttendeeRosterGrain.GlobalKey)
+        .GetActive();
+    return Results.Ok(roster);
+});
+
 api.MapPost("/presenter/{key}/actions", async (string key, CreateActionRequest body, HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();

@@ -8,6 +8,8 @@
   interface ActionSummary { id: string; title: string; optionCount: number; kind: number; }
   interface PresenterView { name: string; actions: ActionSummary[]; activeActionId: string | null; }
   interface ResultsView { actionId: string; title: string; options: string[]; counts: number[]; total: number; }
+  interface AttendeePresence { name: string; lastSeen: string; }
+  interface AttendeeRosterView { count: number; attendees: AttendeePresence[]; }
 
   let name = $state('');
   // The password is never pre-filled or persisted — the presenter types it each
@@ -22,6 +24,11 @@
   let busy = $state(false);
 
   let view = $state<PresenterView | null>(null);
+
+  // Live attendee roster (everyone who called the presentation in the last 10
+  // minutes). Collapsed by default — the header just shows the count.
+  let attendees = $state<AttendeeRosterView | null>(null);
+  let attendeesOpen = $state(false);
 
   // The action currently in focus for attendees, resolved from the polled view.
   let liveAction = $derived.by(() => {
@@ -105,7 +112,29 @@
     view = await res.json();
     presenterSession.save({ key, name, password });
     connected = true;
+    await loadAttendees();
     poll = setInterval(refresh, 2000);
+  }
+
+  // Poll the live attendee roster. Failures here are non-fatal — the roster is a
+  // secondary panel, so we leave the last known list in place rather than
+  // surfacing an error over the main presenter flow.
+  async function loadAttendees() {
+    if (!key) return;
+    try {
+      const res = await fetch('/api/presenter/attendees', { headers: authHeaders() });
+      if (res.ok) attendees = await res.json();
+    } catch {
+      /* keep the last roster */
+    }
+  }
+
+  // Human-readable "last seen" label for a roster entry.
+  function lastSeenLabel(iso: string): string {
+    const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    if (secs < 10) return 'just now';
+    if (secs < 60) return `${secs}s ago`;
+    return `${Math.floor(secs / 60)}m ago`;
   }
 
   async function refresh() {
@@ -121,6 +150,7 @@
       }
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       view = await res.json();
+      await loadAttendees();
       if (selectedActionId) await loadResults(selectedActionId);
       error = null;
     } catch (e) {
@@ -360,6 +390,49 @@
         Sign out
       </button>
     </div>
+
+    <!-- Attendees: collapsed by default, the header shows the live count. -->
+    <section class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        onclick={() => (attendeesOpen = !attendeesOpen)}
+        aria-expanded={attendeesOpen}
+        class="flex w-full items-center justify-between px-6 py-4 text-left transition hover:bg-slate-50"
+      >
+        <div class="flex items-center gap-2.5">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Attendees</h2>
+          <span class="inline-flex min-w-6 items-center justify-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+            {attendees?.count ?? 0}
+          </span>
+        </div>
+        <svg
+          class="h-4 w-4 text-slate-400 transition-transform {attendeesOpen ? 'rotate-180' : ''}"
+          viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"
+        >
+          <path fill-rule="evenodd" d="M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4Z" clip-rule="evenodd"/>
+        </svg>
+      </button>
+      {#if attendeesOpen}
+        <div class="border-t border-slate-100 px-6 py-4">
+          {#if attendees && attendees.count > 0}
+            <ul class="space-y-2.5">
+              {#each attendees.attendees as a}
+                <li class="flex items-center justify-between gap-3 text-sm">
+                  <span class="flex min-w-0 items-center gap-2">
+                    <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500"></span>
+                    <span class="truncate font-medium text-slate-700">{a.name}</span>
+                  </span>
+                  <span class="shrink-0 text-xs text-slate-400">{lastSeenLabel(a.lastSeen)}</span>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="text-sm text-slate-400">No attendees in the last 10 minutes.</p>
+          {/if}
+          <p class="mt-3 text-xs text-slate-400">Active in the last 10 minutes.</p>
+        </div>
+      {/if}
+    </section>
 
     <!-- Now live: always shows what attendees currently see, with an unfocus control. -->
     <section class="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
