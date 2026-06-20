@@ -29,12 +29,16 @@ internal sealed class AttendeeChargerAggregateState
 public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggregateGrain
 {
     private readonly AttendeeChargerAggregateState _state = new();
+    private string _actionId = "";
 
     public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        // The attendee id is the middle segment of the grain key
-        // "action-{actionId}/attendee-{attendeeId}/aggregate".
+        // Key: "action-{actionId}/attendee-{attendeeId}/aggregate".
         var parts = this.GetPrimaryKeyString().Split('/');
+        if (parts.Length >= 1)
+        {
+            _actionId = parts[0]["action-".Length..];
+        }
         if (parts.Length >= 2 && parts[1].StartsWith("attendee-", StringComparison.Ordinal))
         {
             _state.Summary.AttendeeId = parts[1]["attendee-".Length..];
@@ -43,7 +47,7 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
         return base.OnActivateAsync(cancellationToken);
     }
 
-    public Task<ChargerFleetSummary> UpsertContribution(ChargerAggregateContribution contribution)
+    public async Task<ChargerFleetSummary> UpsertContribution(ChargerAggregateContribution contribution)
     {
         var summary = _state.Summary;
 
@@ -52,10 +56,23 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
             // Ignore duplicate or out-of-order updates.
             if (contribution.Version <= previous.Version)
             {
-                return Task.FromResult(summary);
+                return summary;
             }
 
             Apply(summary, previous, -1);
+        }
+
+        // If the kill switch is on and this charger is still alive, kill it now.
+        // Fire-and-forget: the charger will publish its own Killed contribution
+        // once Kill() completes, which will update the summary on the next call.
+        if (contribution.State != ChargerSimState.Killed && await Action.IsKillSwitchEnabled())
+        {
+            var number = ChargerSimKeys.NumberFromDisplayId(contribution.ChargerId);
+            if (number > 0)
+            {
+                var chargerKey = ChargerSimKeys.Charger(_actionId, contribution.AttendeeId, number);
+                _ = GrainFactory.GetGrain<IChargerGrain>(chargerKey).Kill();
+            }
         }
 
         Apply(summary, contribution, +1);
@@ -67,7 +84,7 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
             summary.LastUpdatedAt = contribution.UpdatedAt;
         }
 
-        return Task.FromResult(summary);
+        return summary;
     }
 
     public Task<ChargerFleetSummary> GetSummary() => Task.FromResult(_state.Summary);
@@ -112,6 +129,9 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
         _state.Summary = new ChargerFleetSummary { AttendeeId = attendeeId };
         return Task.CompletedTask;
     }
+
+    private IChargerSimActionGrain Action =>
+        GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(_actionId));
 
     private static bool Matches(ChargerAggregateContribution c, ChargerSelectionFilter filter) => filter switch
     {
