@@ -400,9 +400,11 @@
           <button
             type="button"
             onclick={() => toggleType(item.type)}
-            class="inline-flex items-center gap-1.5 text-xs transition-opacity {item.hidden
+            class="inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-xs transition-opacity {item.hidden
               ? 'opacity-40 hover:opacity-70'
-              : 'text-slate-400 hover:opacity-80'}"
+              : 'text-slate-400 hover:opacity-80'} {item.capped
+              ? 'outline outline-1 outline-orange-400/70'
+              : ''}"
             title={item.hidden
               ? `Show ${item.label} grains`
               : item.capped
@@ -415,13 +417,6 @@
             ></span>
             {item.label}
             <span class="tabular-nums text-slate-500">· {item.count}</span>
-            {#if item.capped}
-              <span
-                class="text-orange-400"
-                title="Showing {MAX_PER_TYPE} of {item.count} grains"
-                aria-label="Display capped at {MAX_PER_TYPE}"
-              >⬤</span>
-            {/if}
           </button>
         {/each}
       </div>

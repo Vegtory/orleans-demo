@@ -10,6 +10,10 @@ public sealed class AttendeeChargerSimState
 
     /// <summary>How many chargers this attendee has created (charger numbers 1..Count).</summary>
     [Id(1)] public int Count { get; set; }
+
+    /// <summary>Set permanently once a kill request is received. Causes the grain to
+    /// complete teardown on the next method entry and deactivate.</summary>
+    [Id(2)] public bool Killed { get; set; }
 }
 
 /// <summary>
@@ -33,17 +37,24 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         _state = state;
     }
 
-    public override Task OnActivateAsync(CancellationToken cancellationToken)
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         // Key: "action-{actionId}/attendee-{attendeeId}".
         var parts = this.GetPrimaryKeyString().Split('/');
         _actionId = parts[0]["action-".Length..];
         _attendeeId = parts[1]["attendee-".Length..];
-        return base.OnActivateAsync(cancellationToken);
+        await base.OnActivateAsync(cancellationToken);
+
+        // If the grain was killed before it had a chance to deactivate (e.g. a
+        // silo restart re-activated it from persisted state), finish teardown now.
+        if (_state.State.Killed)
+            await SelfDestruct();
     }
 
     public async Task Register(string displayName)
     {
+        if (await HandleIfKilled()) return;
+
         if (_state.State.DisplayName != displayName && !string.IsNullOrWhiteSpace(displayName))
         {
             _state.State.DisplayName = displayName;
@@ -53,8 +64,17 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         await Action.RegisterAttendee(_attendeeId);
     }
 
+    public async Task Kill()
+    {
+        if (_state.State.Killed) return;
+        _state.State.Killed = true;
+        await _state.WriteStateAsync();
+        await SelfDestruct();
+    }
+
     public async Task<int> CreateChargers(int amount)
     {
+        if (await HandleIfKilled()) return _state.State.Count;
         await EnsureActive();
         if (await Action.IsKillSwitchEnabled())
             throw new InvalidOperationException("Kill switch is engaged.");
@@ -97,6 +117,8 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
     public async Task KillMyChargers()
     {
+        if (await HandleIfKilled()) return;
+
         // Kill only the chargers that are still alive (selected from the aggregate
         // snapshot) so we don't reactivate already-killed, deactivated grains.
         // Each killed charger publishes its final Killed contribution.
@@ -109,6 +131,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
     public async Task SendBatchCommand(BatchChargerCommandType command, int amount)
     {
+        if (await HandleIfKilled()) return;
         await EnsureActive();
 
         var take = amount <= 0 ? IAttendeeChargerSimGrain.DefaultBatchSize : amount;
@@ -146,6 +169,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
     public async Task<ChargerSnapshot?> CommandCharger(string chargerId, SingleChargerCommandType command)
     {
+        if (await HandleIfKilled()) return null;
         await EnsureActive();
 
         var charger = ResolveCharger(chargerId);
@@ -172,6 +196,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
     public async Task<ChargerFleetSummary> GetSummary()
     {
+        if (await HandleIfKilled()) return new ChargerFleetSummary { AttendeeName = _state.State.DisplayName };
         var summary = await Aggregate.GetSummary();
         summary.AttendeeName = _state.State.DisplayName;
         return summary;
@@ -179,19 +204,30 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
     public async Task<ChargerSnapshot?> GetCharger(string chargerId)
     {
+        if (await HandleIfKilled()) return null;
         var charger = ResolveCharger(chargerId);
         return charger is null ? null : await charger.GetSnapshot();
     }
 
-    public Task<ChargerSnapshot?> GetRandomActiveCharger() => GetRandomInState(ChargerSimState.ActiveSession);
-    public Task<ChargerSnapshot?> GetRandomPausedCharger() => GetRandomInState(ChargerSimState.PausedWithSession);
-
-    public Task<IReadOnlyList<string>> GetChargerIds()
+    public async Task<ChargerSnapshot?> GetRandomActiveCharger()
     {
+        if (await HandleIfKilled()) return null;
+        return await GetRandomInState(ChargerSimState.ActiveSession);
+    }
+
+    public async Task<ChargerSnapshot?> GetRandomPausedCharger()
+    {
+        if (await HandleIfKilled()) return null;
+        return await GetRandomInState(ChargerSimState.PausedWithSession);
+    }
+
+    public async Task<IReadOnlyList<string>> GetChargerIds()
+    {
+        if (await HandleIfKilled()) return [];
         IReadOnlyList<string> ids = Enumerable.Range(1, _state.State.Count)
             .Select(ChargerSimKeys.DisplayId)
             .ToList();
-        return Task.FromResult(ids);
+        return ids;
     }
 
     // -- Helpers ----------------------------------------------------------------
@@ -201,6 +237,30 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
 
     private IAttendeeChargerAggregateGrain Aggregate =>
         GrainFactory.GetGrain<IAttendeeChargerAggregateGrain>(ChargerSimKeys.Aggregate(_actionId, _attendeeId));
+
+    // Returns true (and initiates teardown) when the killed flag is set.
+    // Call at the start of every public method: `if (await HandleIfKilled()) return;`
+    private async Task<bool> HandleIfKilled()
+    {
+        if (!_state.State.Killed) return false;
+        await SelfDestruct();
+        return true;
+    }
+
+    // Unregisters any reminders, wipes persisted state, and schedules the grain
+    // for deactivation. Safe to call multiple times (ClearStateAsync is idempotent,
+    // DeactivateOnIdle is a hint the runtime ignores if already deactivating).
+    private async Task SelfDestruct()
+    {
+        // If this grain ever registers a reminder (implement IRemindable + call
+        // RegisterOrUpdateReminder), unregister it here before clearing state so
+        // the reminder store stays clean. Example:
+        //   var r = await this.GetReminder("tick");
+        //   if (r is not null) await this.UnregisterReminder(r);
+
+        await _state.ClearStateAsync();
+        DeactivateOnIdle();
+    }
 
     private async Task EnsureActive()
     {
