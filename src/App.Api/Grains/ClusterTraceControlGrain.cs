@@ -10,7 +10,8 @@ namespace App.Api.Grains;
 /// </summary>
 public sealed class ClusterTraceControlGrain : Grain, IClusterTraceControlGrain
 {
-    private bool _enabled = true;
+    // Tracing is off by default; the presenter opts in from the dashboard.
+    private bool _enabled = false;
     private long _version;
 
     public Task<TraceToggleState> GetState() =>
