@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { presenterSession, sessionHeaders } from '$lib/session';
-  import ClusterView from '$lib/ClusterView.svelte';
+  import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
 
   // A standalone, password-gated display of the live Orleans cluster
   // visualization — and nothing else. Handy to project on a second screen
@@ -58,7 +58,7 @@
   </header>
 
   {#if unlocked}
-    <ClusterView {password} />
+    <SiloGrainCanvas {password} />
   {:else}
     <div class="flex flex-1 flex-col justify-center">
       <div class="mx-auto w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">

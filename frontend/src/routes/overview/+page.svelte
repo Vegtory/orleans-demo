@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { presenterSession, sessionHeaders } from '$lib/session';
-  import ClusterView from '$lib/ClusterView.svelte';
+  import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
   import ChargerSimPresenter from '$lib/ChargerSimPresenter.svelte';
 
   // A standalone "overview" display: the live cluster visualization plus every
@@ -224,7 +224,7 @@
       </div>
     {/if}
 
-    <ClusterView {password} />
+    <SiloGrainCanvas {password} />
   {/if}
 
   {#if error}
