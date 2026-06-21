@@ -119,8 +119,8 @@
   onDestroy(() => { if (poll) clearInterval(poll); });
 </script>
 
-<div class="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-8">
-  <header class="mb-8 flex items-center justify-between">
+<div class="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6">
+  <header class="mb-6 flex items-center justify-between">
     <div class="flex items-center gap-2">
       <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-lg font-bold text-white">P</span>
       <span class="text-lg font-semibold tracking-tight">Live Poll <span class="text-slate-400">· Overview</span></span>
@@ -224,7 +224,7 @@
       </div>
     {/if}
 
-    <SiloGrainCanvas {password} />
+    <SiloGrainCanvas {password} defaultExpanded showAllTypes />
   {/if}
 
   {#if error}
