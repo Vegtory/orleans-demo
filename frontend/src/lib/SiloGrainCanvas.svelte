@@ -13,7 +13,22 @@
   // The component only reconciles data into the long-lived visualization; all
   // particle/animation state lives in GrainsVisualization across polls.
 
-  let { password }: { password: string } = $props();
+  // `defaultExpanded` opens the canvas (and starts polling) on mount instead of
+  // waiting for a click — used by the standalone cluster and overview pages.
+  // `showAllTypes` starts with every grain type visible instead of hiding the
+  // high-volume charger types. `tall` grows the canvas to fill the viewport on
+  // those full-page displays.
+  let {
+    password,
+    defaultExpanded = false,
+    showAllTypes = false,
+    tall = false
+  }: {
+    password: string;
+    defaultExpanded?: boolean;
+    showAllTypes?: boolean;
+    tall?: boolean;
+  } = $props();
 
   // --- API record shapes (mirror the backend's /cluster/live payload) -------
   interface ActiveGrain {
@@ -59,7 +74,10 @@
   // High-volume grain types hidden by default to keep the canvas readable.
   // Click a legend entry to toggle visibility.
   const DEFAULT_HIDDEN = new Set(['charger', 'attendeechargersim', 'attendeechargeraggregate', 'chargersimaction']);
-  let hiddenTypes = $state(new Set(DEFAULT_HIDDEN));
+  // Full-page displays (cluster/overview) opt to show every type up front via
+  // `showAllTypes`; elsewhere the high-volume charger types start hidden.
+  // svelte-ignore state_referenced_locally
+  let hiddenTypes = $state(showAllTypes ? new Set<string>() : new Set(DEFAULT_HIDDEN));
 
   // Max grains rendered per type. When exceeded, we pick a stable random subset
   // equally distributed across silos. The selection is sticky: grains stay
@@ -177,8 +195,10 @@
   // Tracing (call recording) is off by default; the first poll confirms.
   let tracingEnabled = $state(false);
   // Collapsed by default: the cluster view is opt-in, and we avoid polling
-  // /api/cluster/live entirely until the presenter expands it.
-  let collapsed = $state(true);
+  // /api/cluster/live entirely until the presenter expands it. Full-page
+  // displays pass `defaultExpanded` to open (and start polling) immediately.
+  // svelte-ignore state_referenced_locally
+  let collapsed = $state(!defaultExpanded);
   let grainCount = $state(0);
   let siloCount = $state(0);
   let legend = $state<{ type: string; label: string; color: string; count: number; hidden: boolean; capped: boolean }[]>([]);
@@ -384,7 +404,12 @@
 
   {#if !collapsed}
     <!-- Canvas stage. The container drives sizing via ResizeObserver. -->
-    <div bind:this={container} class="relative h-[420px] w-full sm:h-[520px]">
+    <div
+      bind:this={container}
+      class="relative w-full {tall
+        ? 'h-[60vh] min-h-[480px] sm:h-[calc(100vh-15rem)]'
+        : 'h-[420px] sm:h-[520px]'}"
+    >
       <canvas bind:this={canvas} class="block h-full w-full"></canvas>
       {#if grainCount === 0}
         <div class="pointer-events-none absolute inset-0 flex items-center justify-center">

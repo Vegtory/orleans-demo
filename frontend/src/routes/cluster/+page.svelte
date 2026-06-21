@@ -43,8 +43,8 @@
   }
 </script>
 
-<div class="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-8">
-  <header class="mb-8 flex items-center justify-between">
+<div class="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6">
+  <header class="mb-6 flex items-center justify-between">
     <div class="flex items-center gap-2">
       <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-lg font-bold text-white">P</span>
       <span class="text-lg font-semibold tracking-tight">Live Poll <span class="text-slate-400">· Cluster</span></span>
@@ -58,7 +58,7 @@
   </header>
 
   {#if unlocked}
-    <SiloGrainCanvas {password} />
+    <SiloGrainCanvas {password} defaultExpanded showAllTypes tall />
   {:else}
     <div class="flex flex-1 flex-col justify-center">
       <div class="mx-auto w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
