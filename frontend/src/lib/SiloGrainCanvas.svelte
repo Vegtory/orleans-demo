@@ -55,6 +55,7 @@
     attendee: '#34d399',
     multiplechoice: '#fbbf24',
     presentation: '#f472b6',
+    reactions: '#f87171',
     charger: '#38bdf8',
     attendeechargersim: '#2dd4bf',
     attendeechargeraggregate: '#a78bfa',
@@ -65,6 +66,7 @@
     attendee: 'Attendee',
     multiplechoice: 'Multiple choice',
     presentation: 'Presentation',
+    reactions: 'Reactions',
     charger: 'Sim charger',
     attendeechargersim: 'Charger fleet',
     attendeechargeraggregate: 'Fleet aggregate',
@@ -287,7 +289,7 @@
         success: c.success
       });
     }
-    // Keep the seen-set bounded (recorder only keeps the last ~100 calls).
+    // Keep the seen-set bounded (recorder only keeps the last ~200 calls).
     if (seen.size > 600) seen = new Set([...seen].slice(-300));
 
     if (!primed) {

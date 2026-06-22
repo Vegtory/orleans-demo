@@ -77,4 +77,7 @@ public sealed class AttendeeGrain : Grain, IAttendeeGrain
             .Answer(this.GetPrimaryKeyString(), optionIndex);
         return true;
     }
+
+    public Task React(string kind) =>
+        GrainFactory.GetGrain<IReactionsGrain>(IReactionsGrain.GlobalKey).Push(kind);
 }

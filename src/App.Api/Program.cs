@@ -370,7 +370,9 @@ api.MapPost("/attendee/{key}/reaction", async (string key, ReactionRequest body,
         return Results.BadRequest(new { error = $"unknown reaction '{body.Kind}'" });
     }
 
-    await grains.GetGrain<IReactionsGrain>(IReactionsGrain.GlobalKey).Push(kind);
+    // Forward through the attendee's own grain so the emote becomes a real
+    // attendee -> reactions grain hop, visible in the cluster call view.
+    await grains.GetGrain<IAttendeeGrain>(key).React(kind);
     return Results.Ok(new { accepted = true });
 });
 

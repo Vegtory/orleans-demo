@@ -10,7 +10,7 @@ namespace App.Api.Grains;
 /// </summary>
 public sealed class ClusterCallRecorderGrain : Grain, IClusterCallRecorderGrain
 {
-    private readonly GrainCallRecord?[] _buffer = new GrainCallRecord[100];
+    private readonly GrainCallRecord?[] _buffer = new GrainCallRecord[200];
     private int _nextIndex;
     private int _count;
 
