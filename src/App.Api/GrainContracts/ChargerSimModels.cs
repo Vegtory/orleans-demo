@@ -132,6 +132,14 @@ public sealed record ChargerSimDashboard(
 /// </summary>
 public static class ChargerSimKeys
 {
+    /// <summary>
+    /// The fixed action id shared by every ChargerSim ("fleet sim") action. Using a
+    /// constant rather than a per-presenter random id means every presenter drives —
+    /// and every attendee joins — the one and only fleet sim, so its state (chargers,
+    /// aggregates, dashboard) is shared cluster-wide instead of siloed per presenter.
+    /// </summary>
+    public const string FleetActionId = "fleet";
+
     public static string Action(string actionId) => $"action-{actionId}";
 
     public static string Attendee(string actionId, string attendeeId) =>
