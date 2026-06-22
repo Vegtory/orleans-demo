@@ -145,8 +145,8 @@ var api = app.MapGroup("/api").RequireRateLimiting("api");
 
 api.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
-// Turns a display name into a stable "{slug}-{6hex}" grain key.
-static string MakeKey(string name)
+// Turns a display name into a stable lowercase slug, e.g. "Alice B" -> "alice-b".
+static string Slug(string name)
 {
     var slug = new StringBuilder();
     foreach (var ch in name.Trim().ToLowerInvariant())
@@ -161,13 +161,12 @@ static string MakeKey(string name)
         }
     }
 
-    if (slug.Length == 0)
-    {
-        slug.Append("anon");
-    }
-
-    return $"{slug}-{Guid.NewGuid().ToString("N")[..6]}";
+    return slug.Length == 0 ? "anon" : slug.ToString();
 }
+
+// Attendees can legitimately share a display name yet must be distinct grains,
+// so their key gets a short random suffix.
+static string MakeKey(string name) => $"{Slug(name)}-{Guid.NewGuid().ToString("N")[..6]}";
 
 bool PresenterOk(HttpRequest request) =>
     request.Headers["X-Presenter-Password"] == presenterPassword;
@@ -179,7 +178,9 @@ api.MapPost("/presenter", async (NameRequest body, HttpRequest req, IGrainFactor
     if (!PresenterOk(req)) return Results.Unauthorized();
     if (string.IsNullOrWhiteSpace(body.Name)) return Results.BadRequest(new { error = "name is required" });
 
-    var key = MakeKey(body.Name);
+    // Presenter keys are deterministic from the name (no random suffix), so the
+    // same presenter name always re-attaches to the same grain across sessions.
+    var key = Slug(body.Name);
     await grains.GetGrain<IPresenterGrain>(key).Initialize(body.Name);
     return Results.Ok(new { key });
 });
@@ -370,7 +371,9 @@ api.MapPost("/attendee/{key}/reaction", async (string key, ReactionRequest body,
         return Results.BadRequest(new { error = $"unknown reaction '{body.Kind}'" });
     }
 
-    await grains.GetGrain<IReactionsGrain>(IReactionsGrain.GlobalKey).Push(kind);
+    // Forward through the attendee's own grain so the emote becomes a real
+    // attendee -> reactions grain hop, visible in the cluster call view.
+    await grains.GetGrain<IAttendeeGrain>(key).React(kind);
     return Results.Ok(new { accepted = true });
 });
 

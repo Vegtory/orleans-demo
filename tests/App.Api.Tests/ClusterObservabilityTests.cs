@@ -18,12 +18,12 @@ public sealed class ClusterObservabilityTests
     public ClusterObservabilityTests(ClusterFixture fixture) => _cluster = fixture.Cluster;
 
     [Fact]
-    public async Task ClusterCallRecorder_keeps_only_the_last_100_calls_in_order()
+    public async Task ClusterCallRecorder_keeps_only_the_last_200_calls_in_order()
     {
         // A dedicated key gives this test an isolated rolling buffer.
         var recorder = _cluster.GrainFactory.GetGrain<IClusterCallRecorderGrain>(987_654);
 
-        var records = Enumerable.Range(0, 150)
+        var records = Enumerable.Range(0, 250)
             .Select(i => new GrainCallRecord(
                 DateTimeOffset.UtcNow, "siloA", "src", $"target/{i}", "IFace", "M", i, true))
             .ToArray();
@@ -31,9 +31,9 @@ public sealed class ClusterObservabilityTests
 
         var recent = await recorder.GetRecent();
 
-        Assert.Equal(100, recent.Count);
+        Assert.Equal(200, recent.Count);
         Assert.Equal("target/50", recent[0].TargetGrainId); // oldest still kept
-        Assert.Equal("target/149", recent[^1].TargetGrainId); // newest, last
+        Assert.Equal("target/249", recent[^1].TargetGrainId); // newest, last
     }
 
     [Fact]

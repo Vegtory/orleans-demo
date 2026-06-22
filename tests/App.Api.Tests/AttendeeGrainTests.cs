@@ -73,6 +73,34 @@ public sealed class AttendeeGrainTests
     }
 
     [Fact]
+    public async Task React_forwards_the_emote_to_the_global_reaction_feed()
+    {
+        var reactions = _cluster.GrainFactory.GetGrain<IReactionsGrain>(IReactionsGrain.GlobalKey);
+        var cursor = (await reactions.GetSince(null)).LastSeq;
+
+        var attendee = NewAttendee();
+        await attendee.Initialize("Alice");
+        await attendee.React("heart");
+
+        var feed = await reactions.GetSince(cursor);
+        Assert.Equal("heart", Assert.Single(feed.Events).Kind);
+    }
+
+    [Fact]
+    public async Task React_ignores_unknown_kinds()
+    {
+        var reactions = _cluster.GrainFactory.GetGrain<IReactionsGrain>(IReactionsGrain.GlobalKey);
+        var cursor = (await reactions.GetSince(null)).LastSeq;
+
+        var attendee = NewAttendee();
+        await attendee.Initialize("Alice");
+        await attendee.React("rocket");
+
+        var feed = await reactions.GetSince(cursor);
+        Assert.Empty(feed.Events);
+    }
+
+    [Fact]
     public async Task Answer_can_be_changed_while_action_is_live()
     {
         var actionId = await MakeLiveQuestion("Lunch?", ["Pizza", "Sushi"]);

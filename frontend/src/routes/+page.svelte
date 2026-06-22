@@ -227,12 +227,12 @@
           {/if}
         </div>
       {:else}
-        <div class="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/50 p-10 text-center">
-          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
-            <span class="h-3 w-3 animate-ping rounded-full bg-indigo-500"></span>
+        <div class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/50 p-5 text-center">
+          <div class="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100">
+            <span class="h-2.5 w-2.5 animate-ping rounded-full bg-indigo-500"></span>
           </div>
-          <p class="mt-4 font-medium text-slate-600">Just enjoy the talk for now</p>
-          <p class="mt-1 text-sm text-slate-400">The next question will appear here automatically.</p>
+          <p class="mt-3 text-sm font-medium text-slate-600">Just enjoy the talk for now</p>
+          <p class="mt-0.5 text-xs text-slate-400">The next question will appear here automatically.</p>
         </div>
       {/if}
 
