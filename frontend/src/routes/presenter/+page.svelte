@@ -74,7 +74,7 @@
     const id = ++floaterId;
     const left = 8 + Math.random() * 84; // vw, keep clear of the edges
     const drift = (Math.random() - 0.5) * 80; // px sideways sway
-    const duration = 2600 + Math.random() * 1400; // ms float-up time
+    const duration = 6000 + Math.random() * 3000; // ms float-up time
     floaters = [...floaters, { id, emoji, left, drift, duration }];
     const timer = setTimeout(() => {
       floaters = floaters.filter((f) => f.id !== id);
