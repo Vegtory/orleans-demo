@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { presenterSession, sessionHeaders } from '$lib/session';
   import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
+  import ReactionOverlay from '$lib/ReactionOverlay.svelte';
 
   // A standalone, password-gated display of the live Orleans cluster
   // visualization — and nothing else. Handy to project on a second screen
@@ -94,3 +95,8 @@
     <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
   {/if}
 </div>
+
+<!-- Floating attendee reactions over the cluster display. -->
+{#if unlocked}
+  <ReactionOverlay {password} />
+{/if}

@@ -3,6 +3,7 @@
   import { presenterSession, sessionHeaders } from '$lib/session';
   import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
   import ChargerSimPresenter from '$lib/ChargerSimPresenter.svelte';
+  import ReactionOverlay from '$lib/ReactionOverlay.svelte';
 
   // A standalone "overview" display: the live cluster visualization plus every
   // ChargerSim dashboard, expanded and ready to project. Both halves are
@@ -231,3 +232,8 @@
     <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
   {/if}
 </div>
+
+<!-- Floating attendee reactions over the overview display. -->
+{#if connected}
+  <ReactionOverlay {password} />
+{/if}
