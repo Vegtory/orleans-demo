@@ -56,11 +56,20 @@ public sealed class PresenterGrain : Grain, IPresenterGrain
 
     public async Task<string> CreateChargerSim(string title)
     {
-        var actionId = Guid.NewGuid().ToString("N");
+        // Every ChargerSim uses the same well-known action id, so all presenters
+        // share control of the one fleet sim (same chargers, aggregates, dashboard)
+        // rather than each spinning up an isolated copy.
+        var actionId = ChargerSimKeys.FleetActionId;
+
         // The ChargerSim action grain is created lazily on activation; we only
-        // need to record the summary so the presenter can list/activate it.
-        _state.State.Actions.Add(new ActionSummary(actionId, title, 0, ActionKind.ChargerSim));
-        await _state.WriteStateAsync();
+        // need to record the summary so the presenter can list/activate it. Guard
+        // against listing the shared sim twice if it was already created here.
+        if (_state.State.Actions.All(a => a.Id != actionId))
+        {
+            _state.State.Actions.Add(new ActionSummary(actionId, title, 0, ActionKind.ChargerSim));
+            await _state.WriteStateAsync();
+        }
+
         return actionId;
     }
 
