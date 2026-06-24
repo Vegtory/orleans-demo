@@ -71,7 +71,6 @@
   let work = $state<WorkStatus>({ pendingChargers: 0, queuedCommands: 0 });
   const working = $derived(work.pendingChargers > 0 || work.queuedCommands > 0);
   let opened = $state<Charger | null>(null);
-  let openId = $state('');
   let error = $state<string | null>(null);
   let busy = $state(false);
 
@@ -165,19 +164,6 @@
   const batch = (command: string, amount = 100) => post('/batch', { command, amount });
   const killMine = () => post('/kill');
 
-  async function openCharger(id: string) {
-    if (!id) return;
-    error = null;
-    try {
-      const res = await fetch(`${base}/charger/${encodeURIComponent(id)}`, { headers: sessionHeaders() });
-      if (res.status === 404) throw new Error(`No charger ${id}`);
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      opened = await res.json();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
-    }
-  }
-
   async function openRandom(kind: 'active' | 'paused') {
     error = null;
     try {
@@ -228,7 +214,6 @@
       {:else if name === 'bolt'}<path d="M11.983 1.907a.75.75 0 0 0-1.292-.657l-8.5 9.5A.75.75 0 0 0 2.75 12h6.572l-1.305 6.093a.75.75 0 0 0 1.292.657l8.5-9.5A.75.75 0 0 0 17.25 8h-6.572l1.305-6.093Z" />
       {:else if name === 'sparkles'}<path d="M15.98 1.804a1 1 0 0 0-1.96 0l-.24 1.192a1 1 0 0 1-.784.785l-1.192.238a1 1 0 0 0 0 1.962l1.192.238a1 1 0 0 1 .785.785l.238 1.192a1 1 0 0 0 1.962 0l.238-1.192a1 1 0 0 1 .785-.785l1.192-.238a1 1 0 0 0 0-1.962l-1.192-.238a1 1 0 0 1-.785-.785l-.238-1.192ZM6.949 5.684a1 1 0 0 0-1.898 0l-.683 2.051a1 1 0 0 1-.633.633l-2.051.683a1 1 0 0 0 0 1.898l2.051.684a1 1 0 0 1 .633.632l.683 2.051a1 1 0 0 0 1.898 0l.683-2.051a1 1 0 0 1 .633-.633l2.051-.683a1 1 0 0 0 0-1.898l-2.051-.683a1 1 0 0 1-.633-.633L6.95 5.684ZM13.949 13.684a1 1 0 0 0-1.898 0l-.184.551a1 1 0 0 1-.632.633l-.551.183a1 1 0 0 0 0 1.898l.551.183a1 1 0 0 1 .633.633l.183.551a1 1 0 0 0 1.898 0l.184-.551a1 1 0 0 1 .632-.633l.551-.183a1 1 0 0 0 0-1.898l-.551-.184a1 1 0 0 1-.633-.632l-.183-.551Z" />
       {:else if name === 'trash'}<path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clip-rule="evenodd" />
-      {:else if name === 'search'}<path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clip-rule="evenodd" />
       {/if}
     </svg>
   {/snippet}
@@ -308,11 +293,6 @@
           <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
           <button disabled={busy} onclick={() => openRandom('paused')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-50 disabled:opacity-50">{@render icon('pause')} Random paused</button>
         </div>
-        <form class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm" onsubmit={(e) => { e.preventDefault(); openCharger(openId.trim().toUpperCase()); }}>
-          <input bind:value={openId} placeholder="CP-000042" class="w-32 px-3 py-1.5 text-sm outline-none focus:bg-indigo-50/40" />
-          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
-          <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">{@render icon('search')} Open</button>
-        </form>
       </div>
     </div>
   </div>
