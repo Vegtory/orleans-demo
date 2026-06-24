@@ -5,8 +5,9 @@ namespace App.Api.GrainContracts;
 /// <summary>
 /// One per attendee, keyed "action-{actionId}/attendee-{attendeeId}". The
 /// attendee's control surface for ChargerSim: it owns charger creation, batch
-/// commands, single-charger commands and kill, enforcing the 10,000 cap and that
-/// the action is active. Fleet reads are delegated to the aggregate grain.
+/// commands, single-charger commands and kill, enforcing the presenter-set
+/// per-attendee charger cap and that the action is active. Fleet reads are
+/// delegated to the aggregate grain.
 ///
 /// Creation and batch commands are accepted instantly and carried out by a
 /// background worker (a grain timer): the caller records a request, and the grain
@@ -15,7 +16,13 @@ namespace App.Api.GrainContracts;
 /// </summary>
 public interface IAttendeeChargerSimGrain : IGrainWithStringKey
 {
+    /// <summary>Absolute hard ceiling on a single attendee's fleet — the largest value the
+    /// presenter-set per-attendee cap can take, and the upper bound for grid sampling.</summary>
     public const int MaxChargers = 5_000;
+
+    /// <summary>Default per-attendee charger cap when the presenter has not set one.</summary>
+    public const int DefaultMaxChargers = 100;
+
     public const int DefaultBatchSize = 100;
 
     /// <summary>Idempotently records the attendee's display name and registers them with the action grain.</summary>
@@ -33,8 +40,8 @@ public interface IAttendeeChargerSimGrain : IGrainWithStringKey
 
     /// <summary>
     /// Requests up to <paramref name="amount"/> more chargers (capped so the live
-    /// fleet never exceeds <see cref="MaxChargers"/>). Returns immediately; the
-    /// background worker creates them in chunks. The return value is the projected
+    /// fleet never exceeds the presenter-set per-attendee cap). Returns immediately;
+    /// the background worker creates them in chunks. The return value is the projected
     /// live fleet total once the request is fulfilled.
     /// </summary>
     Task<int> CreateChargers(int amount);

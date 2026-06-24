@@ -16,6 +16,10 @@ public sealed class ChargerSimActionState
 
     /// <summary>Room-wide collaborative target total active power (kW). 0 means no goal set.</summary>
     [Id(3)] public double GoalActivePowerKw { get; set; }
+
+    /// <summary>Presenter-set per-attendee charger cap. 0 (e.g. state predating this field)
+    /// means "use the default" — see <see cref="ChargerSimActionGrain.EffectiveMaxChargers"/>.</summary>
+    [Id(4)] public int MaxChargersPerAttendee { get; set; }
 }
 
 /// <summary>
@@ -81,6 +85,32 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
 
     public Task<bool> IsActive() => Task.FromResult(_state.State.Active);
     public Task<bool> IsKillSwitchEnabled() => Task.FromResult(_state.State.KillSwitchEnabled);
+
+    public Task<int> GetMaxChargers() => Task.FromResult(EffectiveMaxChargers);
+
+    // The effective per-attendee cap: the presenter-set value, or the default when
+    // unset (0) — which also covers state persisted before this field existed.
+    private int EffectiveMaxChargers =>
+        _state.State.MaxChargersPerAttendee > 0
+            ? _state.State.MaxChargersPerAttendee
+            : IAttendeeChargerSimGrain.DefaultMaxChargers;
+
+    public async Task SetMaxChargers(int maxChargers)
+    {
+        var clamped = Math.Clamp(maxChargers, 1, IAttendeeChargerSimGrain.MaxChargers);
+        if (_state.State.MaxChargersPerAttendee == clamped) return;
+
+        _state.State.MaxChargersPerAttendee = clamped;
+        await _state.WriteStateAsync();
+
+        // Reflect the new cap in the cache immediately so the next poll doesn't lag.
+        if (_cachedDashboard is not null)
+        {
+            _cachedDashboard = _cachedDashboard with { MaxChargersPerAttendee = clamped };
+        }
+
+        await RecordEvent($"Presenter set the charger limit to {clamped:N0} per attendee");
+    }
 
     public async Task RegisterAttendee(string attendeeId)
     {
@@ -203,7 +233,8 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
             summaries.ToArray(),
             _recentEvents.ToArray(),
             _state.State.KillSwitchEnabled,
-            _state.State.GoalActivePowerKw);
+            _state.State.GoalActivePowerKw,
+            EffectiveMaxChargers);
     }
 
     private void EnsureDashboardTimer()

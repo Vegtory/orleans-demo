@@ -35,6 +35,7 @@
     recentEvents: string[];
     killSwitchEnabled: boolean;
     goalActivePowerKw: number;
+    maxChargersPerAttendee: number;
   }
 
   let dash = $state<Dashboard | null>(null);
@@ -42,6 +43,8 @@
   let togglePending = $state(false);
   let goalInput = $state('');
   let goalPending = $state(false);
+  let maxInput = $state('');
+  let maxPending = $state(false);
   // svelte-ignore state_referenced_locally -- intentional: seed once from the prop
   let open = $state(defaultOpen);
 
@@ -139,6 +142,33 @@
     }
   }
 
+  // Set the per-attendee charger cap. Optimistically reflects the new value so the
+  // dashboard updates without waiting for the poll; the backend clamps to [1, 5000].
+  async function setMaxChargers(value: number) {
+    if (maxPending) return;
+    const max = Math.round(value);
+    if (!Number.isFinite(max) || max < 1) return;
+    const previous = dash?.maxChargersPerAttendee ?? 100;
+    if (dash) dash = { ...dash, maxChargersPerAttendee: max };
+    maxPending = true;
+    try {
+      const res = await fetch(`${base}/maxchargers`, {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ maxChargers: max })
+      });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const applied = await res.json();
+      if (dash) dash = { ...dash, maxChargersPerAttendee: applied.maxChargersPerAttendee ?? max };
+      maxInput = '';
+    } catch (e) {
+      if (dash) dash = { ...dash, maxChargersPerAttendee: previous };
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      maxPending = false;
+    }
+  }
+
   const fmt = (n: number, d = 1) => (n ?? 0).toLocaleString(undefined, { maximumFractionDigits: d });
 </script>
 
@@ -208,6 +238,27 @@
           <p class="text-xs uppercase tracking-wide text-red-300">Killed chargers</p>
           <p class="text-2xl font-black tabular-nums text-red-200">{fmt(dash?.global.killedCount ?? 0, 0)}</p>
         </div>
+      </div>
+
+      <!-- Per-attendee charger limit control -->
+      <div class="mt-5 rounded-xl bg-slate-800 px-4 py-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">🔌 Max chargers per attendee</p>
+          <span class="text-sm font-bold tabular-nums text-indigo-300">{fmt(dash?.maxChargersPerAttendee ?? 100, 0)}</span>
+        </div>
+        <p class="mt-1 text-xs text-slate-500">Each attendee can create up to this many live chargers. Default 100.</p>
+        <form class="mt-3 flex flex-wrap items-center gap-2" onsubmit={(e) => { e.preventDefault(); const v = parseInt(maxInput, 10); if (Number.isFinite(v) && v > 0) setMaxChargers(v); }}>
+          <input
+            bind:value={maxInput}
+            type="number"
+            min="1"
+            max="5000"
+            step="50"
+            placeholder={`${dash?.maxChargersPerAttendee ?? 100}`}
+            class="w-32 rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400"
+          />
+          <button type="submit" disabled={maxPending} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50">Set limit</button>
+        </form>
       </div>
 
       <!-- Collaborative goal control -->

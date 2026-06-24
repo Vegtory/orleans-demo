@@ -138,7 +138,8 @@ public sealed record ChargerSimDashboard(
     [property: Id(2)] ChargerFleetSummary[] Attendees,
     [property: Id(3)] string[] RecentEvents,
     [property: Id(4)] bool KillSwitchEnabled = false,
-    [property: Id(5)] double GoalActivePowerKw = 0);
+    [property: Id(5)] double GoalActivePowerKw = 0,
+    [property: Id(6)] int MaxChargersPerAttendee = 100);
 
 /// <summary>
 /// The room-wide collaborative goal and the fleet's progress toward it. The

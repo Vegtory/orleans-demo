@@ -286,6 +286,16 @@ api.MapPost("/presenter/{key}/chargersim/{actionId}/goal", async (string key, st
     return Results.Ok(new { goalActivePowerKw = Math.Max(0, body.TargetActivePowerKw) });
 });
 
+// Presenter sets the per-attendee charger cap (default 100). Clamped server-side to
+// [1, MaxChargers]; the response echoes the value actually applied.
+api.MapPost("/presenter/{key}/chargersim/{actionId}/maxchargers", async (string key, string actionId, MaxChargersRequest body, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).SetMaxChargers(body.MaxChargers);
+    var clamped = Math.Clamp(body.MaxChargers, 1, IAttendeeChargerSimGrain.MaxChargers);
+    return Results.Ok(new { maxChargersPerAttendee = clamped });
+});
+
 api.MapPost("/presenter/{key}/actions/{actionId}/activate", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();
@@ -570,4 +580,5 @@ internal sealed record CreateChargerSimRequest(string Title);
 internal sealed record AmountRequest(int Amount);
 internal sealed record KillSwitchRequest(bool Enabled);
 internal sealed record GoalRequest(double TargetActivePowerKw);
+internal sealed record MaxChargersRequest(int MaxChargers);
 internal sealed record BatchRequest(string Command, int Amount);
