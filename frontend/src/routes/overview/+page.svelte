@@ -120,7 +120,7 @@
   onDestroy(() => { if (poll) clearInterval(poll); });
 </script>
 
-<div class="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6">
+<div class="mx-auto flex min-h-screen w-full max-w-screen-2xl flex-col px-4 py-6">
   <header class="mb-6 flex items-center justify-between">
     <div class="flex items-center gap-2">
       <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-lg font-bold text-white">P</span>
@@ -207,25 +207,27 @@
         </form>
       </div>
     </div>
-  {:else}
-    <!-- ChargerSim dashboards first (the headline numbers), then the cluster. -->
-    {#if chargerSims.length > 0}
-      <div class="mb-6 space-y-4">
-        {#each chargerSims as a (a.id)}
-          {#if key}
-            <ChargerSimPresenter presenterKey={key} actionId={a.id} {password} title={a.title} defaultOpen />
-          {/if}
-        {/each}
+    <!-- Fleet aggregate (ChargerSim dashboards) and the cluster overview sit
+         stacked on small screens and side by side from the lg breakpoint up. -->
+    <div class="grid gap-6 lg:grid-cols-2 lg:items-start">
+      <div class="space-y-4">
+        {#if chargerSims.length > 0}
+          {#each chargerSims as a (a.id)}
+            {#if key}
+              <ChargerSimPresenter presenterKey={key} actionId={a.id} {password} title={a.title} defaultOpen />
+            {/if}
+          {/each}
+        {:else}
+          <div class="rounded-2xl border border-dashed border-slate-300 bg-white/50 p-6 text-center text-sm text-slate-500">
+            No ChargerSim simulations yet. Create one from the
+            <a href="/presenter" class="font-medium text-indigo-600 hover:underline">presenter console</a>
+            to see its dashboard here.
+          </div>
+        {/if}
       </div>
-    {:else}
-      <div class="mb-6 rounded-2xl border border-dashed border-slate-300 bg-white/50 p-6 text-center text-sm text-slate-500">
-        No ChargerSim simulations yet. Create one from the
-        <a href="/presenter" class="font-medium text-indigo-600 hover:underline">presenter console</a>
-        to see its dashboard here.
-      </div>
-    {/if}
 
-    <SiloGrainCanvas {password} defaultExpanded showAllTypes />
+      <SiloGrainCanvas {password} defaultExpanded showAllTypes />
+    </div>
   {/if}
 
   {#if error}
