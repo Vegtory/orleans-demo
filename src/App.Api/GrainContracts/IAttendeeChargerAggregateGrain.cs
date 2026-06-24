@@ -22,6 +22,14 @@ public interface IAttendeeChargerAggregateGrain : IGrainWithStringKey
     /// <summary>The most recently updated contributions, newest first (for dashboards).</summary>
     Task<IReadOnlyList<ChargerAggregateContribution>> GetRecentContributions(int take);
 
+    /// <summary>
+    /// A stable sample of up to <paramref name="take"/> chargers for the attendee's
+    /// live fleet grid. Returned in stable insertion order (not by recency) so a cell
+    /// keeps its position between polls and animates in place. Killed chargers remain
+    /// in the sample so the grid shows them going dark.
+    /// </summary>
+    Task<IReadOnlyList<ChargerCellState>> GetStateSample(int take);
+
     /// <summary>Returns up to <paramref name="take"/> charger ids whose last contribution matches the filter.</summary>
     Task<IReadOnlyList<string>> SelectChargerIds(ChargerSelectionFilter filter, int take);
 

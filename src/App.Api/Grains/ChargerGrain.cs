@@ -314,7 +314,8 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
             HasSession = hasSession,
             ActivePowerKw = s.ActivePowerKw,
             SessionKwh = s.SessionKwh,
-            UpdatedAt = s.LastUpdatedAt
+            UpdatedAt = s.LastUpdatedAt,
+            MaxPowerKw = s.MaxPowerKw
         };
 
         var aggregateKey = ChargerSimKeys.Aggregate(_actionId, s.AttendeeId);

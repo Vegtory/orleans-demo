@@ -125,6 +125,21 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
         return _cachedDashboard! with { RecentEvents = _recentEvents.ToArray() };
     }
 
+    public async Task<IReadOnlyList<ChargerFleetSummary>> GetLeaderboard()
+    {
+        // Reuse the dashboard cache: keep the refresh timer alive and build the
+        // snapshot inline on the first call, exactly like GetDashboard. Attendees
+        // poll this directly, so leaning on the cache keeps the fan-out at ≤1/sec.
+        _lastDashboardRequest = DateTimeOffset.UtcNow;
+        EnsureDashboardTimer();
+        if (_cachedDashboard is null)
+        {
+            await RefreshDashboard();
+        }
+
+        return _cachedDashboard!.Attendees;
+    }
+
     // Recomputes the cached dashboard by fanning out to the attendee aggregates.
     // Runs on _dashboardTimer (and inline on the first GetDashboard call). The only
     // shared state it writes is the _cachedDashboard reference, assigned after its

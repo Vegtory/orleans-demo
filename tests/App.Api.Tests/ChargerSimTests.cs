@@ -11,7 +11,7 @@ public sealed class ChargerSimTests
     public ChargerSimTests(ClusterFixture fixture) => _cluster = fixture.Cluster;
 
     private static ChargerAggregateContribution Contribution(
-        string chargerId, long version, ChargerSimState state, double power = 0, double kwh = 0) =>
+        string chargerId, long version, ChargerSimState state, double power = 0, double kwh = 0, double maxPower = 0) =>
         new()
         {
             AttendeeId = "alice",
@@ -21,6 +21,7 @@ public sealed class ChargerSimTests
             HasSession = state is ChargerSimState.ActiveSession or ChargerSimState.PausedWithSession,
             ActivePowerKw = power,
             SessionKwh = kwh,
+            MaxPowerKw = maxPower,
             UpdatedAt = DateTimeOffset.UtcNow
         };
 
@@ -111,6 +112,62 @@ public sealed class ChargerSimTests
         Assert.Equal(0, summary.ActiveSessionCount);
         Assert.Equal(0, summary.TotalActivePowerKw, 3);
         Assert.Equal(0, summary.TotalSessionKwh, 3);
+    }
+
+    [Fact]
+    public async Task GetStateSample_returns_a_cell_per_charger_with_state_and_power()
+    {
+        var agg = NewAggregate();
+
+        await agg.UpsertContribution(Contribution("CP-000001", 1, ChargerSimState.ActiveSession, power: 11, maxPower: 22));
+        await agg.UpsertContribution(Contribution("CP-000002", 1, ChargerSimState.NoSession));
+        await agg.UpsertContribution(Contribution("CP-000003", 1, ChargerSimState.PausedWithSession));
+
+        var sample = await agg.GetStateSample(10);
+        Assert.Equal(3, sample.Count);
+
+        var active = sample.Single(c => c.State == ChargerSimState.ActiveSession);
+        Assert.Equal(11, active.ActivePowerKw, 3);
+        Assert.Equal(22, active.MaxPowerKw, 3);
+        Assert.Contains(sample, c => c.State == ChargerSimState.NoSession);
+        Assert.Contains(sample, c => c.State == ChargerSimState.PausedWithSession);
+    }
+
+    [Fact]
+    public async Task GetStateSample_caps_the_returned_count_at_take()
+    {
+        var agg = NewAggregate();
+        for (var i = 1; i <= 5; i++)
+        {
+            await agg.UpsertContribution(Contribution($"CP-{i:000000}", 1, ChargerSimState.NoSession));
+        }
+
+        Assert.Equal(2, (await agg.GetStateSample(2)).Count);
+    }
+
+    [Fact]
+    public async Task GetLeaderboard_returns_one_summary_per_registered_attendee()
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        var action = _cluster.GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId));
+        await action.Activate();
+
+        var alice = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
+            ChargerSimKeys.Attendee(actionId, "alice-lb"));
+        var bob = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
+            ChargerSimKeys.Attendee(actionId, "bob-lb"));
+        await alice.Register("Alice");
+        await bob.Register("Bob");
+        await alice.CreateChargers(5);
+        await bob.CreateChargers(8);
+        await Drain(alice);
+        await Drain(bob);
+
+        var leaderboard = await action.GetLeaderboard();
+
+        Assert.Equal(2, leaderboard.Count);
+        Assert.Contains(leaderboard, s => s.AttendeeName == "Alice" && s.TotalChargers == 5);
+        Assert.Contains(leaderboard, s => s.AttendeeName == "Bob" && s.TotalChargers == 8);
     }
 
     [Fact]

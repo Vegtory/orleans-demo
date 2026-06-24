@@ -69,6 +69,7 @@ public sealed record ChargerAggregateContribution
     [Id(5)] public double ActivePowerKw { get; init; }
     [Id(6)] public double SessionKwh { get; init; }
     [Id(7)] public DateTimeOffset UpdatedAt { get; init; }
+    [Id(8)] public double MaxPowerKw { get; init; }
 }
 
 /// <summary>A live, roll-up view of one attendee's charger fleet, maintained incrementally.</summary>
@@ -100,6 +101,17 @@ public sealed class ChargerFleetSummary
 public sealed record ChargerSimWorkStatus(
     [property: Id(0)] int PendingChargers,
     [property: Id(1)] int QueuedCommands);
+
+/// <summary>
+/// A compact per-charger cell for the attendee's live fleet grid: just enough to
+/// colour a cell by state and scale its brightness by load. Sampled from the
+/// aggregate's in-memory contributions — never read from the charger grains.
+/// </summary>
+[GenerateSerializer]
+public sealed record ChargerCellState(
+    [property: Id(0)] ChargerSimState State,
+    [property: Id(1)] double ActivePowerKw,
+    [property: Id(2)] double MaxPowerKw);
 
 /// <summary>A point-in-time snapshot of one charger, returned only when an attendee opens it.</summary>
 [GenerateSerializer]

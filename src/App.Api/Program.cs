@@ -414,10 +414,24 @@ api.MapPost("/chargersim/{actionId}/attendee/{key}/register", async (string acti
 api.MapGet("/chargersim/{actionId}/attendee/{key}/summary", async (string actionId, string key, IGrainFactory grains) =>
     Results.Ok(await ChargerSimAttendee(grains, actionId, key).GetSummary()));
 
+// Attendee-facing leaderboard: per-attendee fleet summaries the client ranks. Served
+// from the action grain's cached dashboard snapshot, so many attendees polling this
+// never causes more than one fan-out per second.
+api.MapGet("/chargersim/{actionId}/leaderboard", async (string actionId, IGrainFactory grains) =>
+    Results.Ok(await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).GetLeaderboard()));
+
 // Outstanding background work (chargers still being created, commands still queued),
 // so the attendee UI can show a "working…" indicator while the worker drains.
 api.MapGet("/chargersim/{actionId}/attendee/{key}/work", async (string actionId, string key, IGrainFactory grains) =>
     Results.Ok(await ChargerSimAttendee(grains, actionId, key).GetWorkStatus()));
+
+// A stable sample of charger cells for the attendee's live fleet grid. `take` is
+// clamped so the payload stays small even for a 5,000-charger fleet.
+api.MapGet("/chargersim/{actionId}/attendee/{key}/grid", async (string actionId, string key, int? take, IGrainFactory grains) =>
+{
+    var count = Math.Clamp(take ?? 300, 1, 400);
+    return Results.Ok(await ChargerSimAttendee(grains, actionId, key).GetStateSample(count));
+});
 
 api.MapPost("/chargersim/{actionId}/attendee/{key}/create", async (string actionId, string key, AmountRequest body, IGrainFactory grains) =>
 {
