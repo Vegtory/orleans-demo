@@ -18,8 +18,10 @@
     if (n <= 120) return { size: 16, gap: 3 };
     if (n <= 300) return { size: 13, gap: 3 };
     if (n <= 800) return { size: 10, gap: 2 };
-    if (n <= 2000) return { size: 8, gap: 2 };
-    return { size: 6, gap: 1 };
+    if (n <= 1500) return { size: 8, gap: 2 };
+    if (n <= 3000) return { size: 6, gap: 1 };
+    if (n <= 4500) return { size: 5, gap: 1 };
+    return { size: 4, gap: 1 }; // densest tier — full ~5,000-charger fleet
   });
 
   // Per-cell colour transitions are a smooth touch for small fleets, but thousands
