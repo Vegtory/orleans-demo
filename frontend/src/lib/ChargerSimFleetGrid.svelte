@@ -40,7 +40,9 @@
   {#if cells.length === 0}
     <p class="mt-2 text-sm text-slate-500">No chargers yet — request some above to light up the grid.</p>
   {:else}
-    <div class="mt-2 grid gap-[3px]" style="grid-template-columns: repeat(20, minmax(0, 1fr));">
+    <!-- auto-fill so the grid reflows to the screen: ~13px cells on a phone,
+         many more columns on a wide screen, with no ragged right edge. -->
+    <div class="mt-2 grid gap-[3px]" style="grid-template-columns: repeat(auto-fill, minmax(13px, 1fr));">
       {#each cells as c, i (i)}
         <div
           class="aspect-square rounded-[2px] transition-colors duration-500"

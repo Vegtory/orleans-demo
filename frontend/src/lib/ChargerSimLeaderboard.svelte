@@ -46,9 +46,9 @@
     {#snippet row(r: (typeof ranked)[number], mine: boolean)}
       <div class="flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm {mine ? 'bg-indigo-50 ring-1 ring-indigo-200' : ''}">
         <span class="w-8 shrink-0 text-center font-bold tabular-nums {r.rank <= 3 ? 'text-base' : 'text-slate-400'}">{medal(r.rank)}</span>
-        <span class="flex-1 truncate font-medium {mine ? 'text-indigo-700' : 'text-slate-700'}">{r.attendeeName || r.attendeeId}{mine ? ' (you)' : ''}</span>
-        <span class="shrink-0 text-xs tabular-nums text-green-600">{fmt(r.activeSessionCount, 0)} active</span>
-        <span class="w-20 shrink-0 text-right font-semibold tabular-nums text-indigo-600">{fmt(r.totalActivePowerKw)} kW</span>
+        <span class="min-w-0 flex-1 truncate font-medium {mine ? 'text-indigo-700' : 'text-slate-700'}">{r.attendeeName || r.attendeeId}{mine ? ' (you)' : ''}</span>
+        <span class="hidden shrink-0 text-xs tabular-nums text-green-600 min-[380px]:inline">{fmt(r.activeSessionCount, 0)} active</span>
+        <span class="w-16 shrink-0 text-right font-semibold tabular-nums text-indigo-600 sm:w-20">{fmt(r.totalActivePowerKw)} kW</span>
       </div>
     {/snippet}
 

@@ -49,7 +49,7 @@
 
 {#if hasGoal}
   <div class="mt-5 rounded-xl border p-4 transition-colors {reached ? 'border-green-300 bg-green-50' : 'border-indigo-200 bg-indigo-50/50'}">
-    <div class="flex items-baseline justify-between">
+    <div class="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
       <h3 class="text-xs font-semibold uppercase tracking-wide {reached ? 'text-green-600' : 'text-indigo-500'}">
         🎯 Room goal {reached ? '— reached!' : ''}
       </h3>

@@ -111,7 +111,7 @@
 </script>
 
 <div class="mt-5 rounded-xl border border-slate-200 bg-gradient-to-br from-indigo-50/60 to-white p-4">
-  <div class="flex items-center justify-between">
+  <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
     <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Power & achievements</h3>
     <span class="text-xs font-semibold tabular-nums text-indigo-600">{currentPower.toLocaleString(undefined, { maximumFractionDigits: 1 })} kW now</span>
   </div>
@@ -141,10 +141,10 @@
 
 <!-- Achievement pop -->
 {#if toast}
-  <div class="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
-    <div class="flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-lg ring-1 ring-amber-400/50">
-      <span class="text-lg">{toast.emoji}</span>
-      <span>Achievement unlocked — {toast.label}!</span>
+  <div class="pointer-events-none fixed bottom-6 left-1/2 z-50 w-[calc(100vw-1.5rem)] max-w-sm -translate-x-1/2">
+    <div class="mx-auto flex w-fit max-w-full items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-lg ring-1 ring-amber-400/50">
+      <span class="shrink-0 text-lg">{toast.emoji}</span>
+      <span class="truncate">Achievement unlocked — {toast.label}!</span>
     </div>
   </div>
 {/if}
