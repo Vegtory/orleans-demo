@@ -234,68 +234,52 @@
     </div>
   </div>
 
-  <!-- Fleet stat tiles, read from your aggregate grain. -->
-  <div class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-    {#snippet tile(label: string, value: string, tone = 'text-slate-900')}
-      <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-        <p class="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
-        <p class="text-lg font-bold tabular-nums {tone}">{value}</p>
+  <!-- Fleet controls — the primary actions, kept at the top so they're the first thing
+       you reach for. Grouped by intent: add capacity, command the fleet, inspect one charger. -->
+  <div class="mt-5 space-y-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-sm font-bold tracking-tight text-slate-700">Fleet controls</h3>
+      <button disabled={busy} onclick={killMine} class="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50">
+        Kill my chargers
+      </button>
+    </div>
+
+    <!-- Add capacity -->
+    <div>
+      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Add chargers <span class="font-normal normal-case text-slate-400">— up to 5,000, created in the background</span></h4>
+      <div class="mt-2 flex flex-wrap gap-2">
+        <button disabled={busy} onclick={() => create(100)} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">+100 chargers</button>
       </div>
-    {/snippet}
-    {@render tile('Chargers', fmt(summary?.totalChargers ?? 0, 0))}
-    {@render tile('Active', fmt(summary?.activeSessionCount ?? 0, 0), 'text-green-600')}
-    {@render tile('Paused', fmt(summary?.pausedWithSessionCount ?? 0, 0), 'text-amber-600')}
-    {@render tile('No session', fmt(summary?.noSessionCount ?? 0, 0))}
-    {@render tile('Killed', fmt(summary?.killedCount ?? 0, 0), 'text-red-600')}
-    {@render tile('With session', fmt(summary?.chargersWithSessionCount ?? 0, 0))}
-    {@render tile('Active power', `${fmt(summary?.totalActivePowerKw ?? 0)} kW`, 'text-indigo-600')}
-    {@render tile('Session energy', `${fmt(summary?.totalSessionKwh ?? 0)} kWh`)}
-  </div>
+    </div>
 
-  <!-- Room-wide collaborative goal (shown only when the presenter has set one) -->
-  <ChargerSimGoal {goal} />
+    <!-- Command the whole fleet -->
+    <div>
+      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Command the fleet <span class="font-normal normal-case text-slate-400">— 100 chargers, queued &amp; run in the background</span></h4>
+      <div class="mt-2 flex flex-wrap gap-2">
+        <button disabled={busy} onclick={() => batch('StartSessions')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Start sessions</button>
+        <button disabled={busy} onclick={() => batch('StopCharging')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop charging</button>
+        <button disabled={busy} onclick={() => batch('StopSessions')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop sessions</button>
+        <button disabled={busy} onclick={() => batch('LowerPowerUsage')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Lower power</button>
+        <button disabled={busy} onclick={() => batch('IncreasePowerUsage')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Increase power</button>
+        <button disabled={busy} onclick={() => batch('RandomChaos')} class="rounded-lg border border-purple-300 bg-white px-3 py-1.5 text-sm font-medium text-purple-700 transition hover:bg-purple-50 disabled:opacity-50">Random chaos</button>
+      </div>
+    </div>
 
-  <!-- Power sparkline + achievement badges -->
-  <ChargerSimAchievements {summary} {powerHistory} {attendeeKey} />
-
-  <!-- Live fleet grid -->
-  <ChargerSimFleetGrid {cells} total={summary?.totalChargers ?? 0} />
-
-  <!-- Create -->
-  <div class="mt-5">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Request chargers (max 5,000, created in the background)</h3>
-    <div class="mt-2 flex flex-wrap gap-2">
-      <button disabled={busy} onclick={() => create(100)} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">+100</button>
+    <!-- Inspect a single charger -->
+    <div>
+      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Inspect a single charger</h4>
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <button disabled={busy} onclick={() => openRandom('active')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Random active</button>
+        <button disabled={busy} onclick={() => openRandom('paused')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Random paused</button>
+        <form class="flex items-center gap-2" onsubmit={(e) => { e.preventDefault(); openCharger(openId.trim().toUpperCase()); }}>
+          <input bind:value={openId} placeholder="CP-000042" class="w-32 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" />
+          <button type="submit" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Open</button>
+        </form>
+      </div>
     </div>
   </div>
 
-  <!-- Batch commands -->
-  <div class="mt-5">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Batch commands (100 chargers, queued &amp; run in the background)</h3>
-    <div class="mt-2 flex flex-wrap gap-2">
-      <button disabled={busy} onclick={() => batch('StartSessions')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Start sessions</button>
-      <button disabled={busy} onclick={() => batch('StopCharging')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop charging</button>
-      <button disabled={busy} onclick={() => batch('StopSessions')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop sessions</button>
-      <button disabled={busy} onclick={() => batch('LowerPowerUsage')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Lower power</button>
-      <button disabled={busy} onclick={() => batch('IncreasePowerUsage')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Increase power</button>
-      <button disabled={busy} onclick={() => batch('RandomChaos')} class="rounded-lg border border-purple-300 px-3 py-1.5 text-sm font-medium text-purple-700 transition hover:bg-purple-50 disabled:opacity-50">Random chaos</button>
-    </div>
-  </div>
-
-  <!-- Open one charger -->
-  <div class="mt-5">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Open a single charger</h3>
-    <div class="mt-2 flex flex-wrap items-center gap-2">
-      <button disabled={busy} onclick={() => openRandom('active')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Random active</button>
-      <button disabled={busy} onclick={() => openRandom('paused')} class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Random paused</button>
-      <form class="flex items-center gap-2" onsubmit={(e) => { e.preventDefault(); openCharger(openId.trim().toUpperCase()); }}>
-        <input bind:value={openId} placeholder="CP-000042" class="w-32 rounded-lg border border-slate-300 px-2 py-1.5 text-sm shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" />
-        <button type="submit" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Open</button>
-      </form>
-    </div>
-  </div>
-
-  <!-- Single charger detail panel -->
+  <!-- Single charger detail panel (sits with the controls that open it) -->
   {#if opened}
     <div class="mt-5 rounded-xl border border-slate-300 bg-slate-50 p-4">
       <div class="flex items-center justify-between">
@@ -323,15 +307,35 @@
     </div>
   {/if}
 
+  <!-- Live fleet grid — the block overview of every charger you own -->
+  <ChargerSimFleetGrid {cells} total={summary?.totalChargers ?? 0} />
+
   <!-- Live leaderboard across all attendees -->
   <ChargerSimLeaderboard rows={leaderboard} {attendeeKey} />
 
-  <!-- Kill my chargers -->
-  <div class="mt-6 border-t border-slate-100 pt-4">
-    <button disabled={busy} onclick={killMine} class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50">
-      Kill my chargers
-    </button>
+  <!-- Aggregate fleet stats, read from your aggregate grain. -->
+  <div class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+    {#snippet tile(label: string, value: string, tone = 'text-slate-900')}
+      <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <p class="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+        <p class="text-lg font-bold tabular-nums {tone}">{value}</p>
+      </div>
+    {/snippet}
+    {@render tile('Chargers', fmt(summary?.totalChargers ?? 0, 0))}
+    {@render tile('Active', fmt(summary?.activeSessionCount ?? 0, 0), 'text-green-600')}
+    {@render tile('Paused', fmt(summary?.pausedWithSessionCount ?? 0, 0), 'text-amber-600')}
+    {@render tile('No session', fmt(summary?.noSessionCount ?? 0, 0))}
+    {@render tile('Killed', fmt(summary?.killedCount ?? 0, 0), 'text-red-600')}
+    {@render tile('With session', fmt(summary?.chargersWithSessionCount ?? 0, 0))}
+    {@render tile('Active power', `${fmt(summary?.totalActivePowerKw ?? 0)} kW`, 'text-indigo-600')}
+    {@render tile('Session energy', `${fmt(summary?.totalSessionKwh ?? 0)} kWh`)}
   </div>
+
+  <!-- Room-wide collaborative goal (shown only when the presenter has set one) -->
+  <ChargerSimGoal {goal} />
+
+  <!-- Power sparkline + achievement badges -->
+  <ChargerSimAchievements {summary} {powerHistory} {attendeeKey} />
 
   {#if error}
     <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
