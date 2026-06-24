@@ -253,7 +253,6 @@
             type="number"
             min="1"
             max="5000"
-            step="1"
             placeholder={`${dash?.maxChargersPerAttendee ?? 100}`}
             class="w-32 rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400"
           />

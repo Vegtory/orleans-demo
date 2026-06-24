@@ -75,6 +75,14 @@
   let opened = $state<Charger | null>(null);
   let busy = $state(false);
 
+  // Live chargers count toward the cap (killed ones don't). The "add" button tops
+  // up by 100, or by whatever room is left if fewer than 100 slots remain.
+  const liveCount = $derived(
+    (summary?.noSessionCount ?? 0) + (summary?.activeSessionCount ?? 0) + (summary?.pausedWithSessionCount ?? 0)
+  );
+  const roomLeft = $derived(Math.max(0, maxChargers - liveCount));
+  const addAmount = $derived(Math.min(100, roomLeft));
+
   const base = $derived(`/api/chargersim/${encodeURIComponent(actionId)}/attendee/${encodeURIComponent(attendeeKey)}`);
 
   let poll: ReturnType<typeof setInterval> | null = null;
@@ -251,7 +259,7 @@
     <div>
       <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Add chargers <span class="font-normal normal-case text-slate-400">— up to {fmt(maxChargers, 0)}, created in the background</span></h4>
       <div class="mt-2 flex flex-wrap gap-2">
-        <button disabled={busy} onclick={() => create(maxChargers)} class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">{@render icon('plus')} Fill to {fmt(maxChargers, 0)}</button>
+        <button disabled={busy || addAmount < 1} onclick={() => create(addAmount)} class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">{@render icon('plus')} {addAmount < 1 ? 'Fleet full' : `${fmt(addAmount, 0)} chargers`}</button>
       </div>
     </div>
 
