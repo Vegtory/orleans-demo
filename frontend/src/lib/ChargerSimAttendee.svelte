@@ -262,6 +262,7 @@
         <button disabled={busy} onclick={() => batch('LowerPowerUsage')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Lower power</button>
         <button disabled={busy} onclick={() => batch('IncreasePowerUsage')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Increase power</button>
         <button disabled={busy} onclick={() => batch('RandomChaos')} class="rounded-lg border border-purple-300 bg-white px-3 py-1.5 text-sm font-medium text-purple-700 transition hover:bg-purple-50 disabled:opacity-50">Random chaos</button>
+        <button disabled={busy} onclick={() => batch('Kill')} class="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50">Kill 100</button>
       </div>
     </div>
 
