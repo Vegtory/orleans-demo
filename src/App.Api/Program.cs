@@ -463,6 +463,11 @@ api.MapGet("/chargersim/{actionId}/leaderboard", async (string actionId, IGrainF
 api.MapGet("/chargersim/{actionId}/goal", async (string actionId, IGrainFactory grains) =>
     Results.Ok(await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).GetGoalStatus()));
 
+// Attendee-facing read of the presenter-set per-attendee charger cap, so the UI can
+// show the real limit. A cheap in-memory grain read (no fan-out).
+api.MapGet("/chargersim/{actionId}/maxchargers", async (string actionId, IGrainFactory grains) =>
+    Results.Ok(new { maxChargersPerAttendee = await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).GetMaxChargers() }));
+
 // Outstanding background work (chargers still being created, commands still queued),
 // so the attendee UI can show a "working…" indicator while the worker drains.
 api.MapGet("/chargersim/{actionId}/attendee/{key}/work", async (string actionId, string key, IGrainFactory grains) =>

@@ -65,6 +65,7 @@
   const STATE_LABELS = ['No session', 'Active session', 'Paused', 'Killed'];
 
   let summary = $state<FleetSummary | null>(null);
+  let maxChargers = $state(100);
   let cells = $state<Cell[]>([]);
   let leaderboard = $state<LeaderboardRow[]>([]);
   let goal = $state<GoalStatus | null>(null);
@@ -117,12 +118,13 @@
 
   async function refresh() {
     try {
-      const [sumRes, workRes, gridRes, lbRes, goalRes] = await Promise.all([
+      const [sumRes, workRes, gridRes, lbRes, goalRes, maxRes] = await Promise.all([
         fetch(`${base}/summary`, { headers: sessionHeaders() }),
         fetch(`${base}/work`, { headers: sessionHeaders() }),
         fetch(`${base}/grid?take=5000`, { headers: sessionHeaders() }),
         fetch(`/api/chargersim/${encodeURIComponent(actionId)}/leaderboard`, { headers: sessionHeaders() }),
-        fetch(`/api/chargersim/${encodeURIComponent(actionId)}/goal`, { headers: sessionHeaders() })
+        fetch(`/api/chargersim/${encodeURIComponent(actionId)}/goal`, { headers: sessionHeaders() }),
+        fetch(`/api/chargersim/${encodeURIComponent(actionId)}/maxchargers`, { headers: sessionHeaders() })
       ]);
       if (sumRes.ok) {
         summary = await sumRes.json();
@@ -133,6 +135,7 @@
       if (gridRes.ok) cells = decodeCells((await gridRes.json()).cells ?? '');
       if (lbRes.ok) leaderboard = await lbRes.json();
       if (goalRes.ok) goal = await goalRes.json();
+      if (maxRes.ok) maxChargers = (await maxRes.json()).maxChargersPerAttendee ?? maxChargers;
       if (opened) await reloadOpened();
     } catch (e) {
       toasts.error(e instanceof Error ? e.message : 'Unknown error');
@@ -246,9 +249,9 @@
 
     <!-- Add capacity -->
     <div>
-      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Add chargers <span class="font-normal normal-case text-slate-400">— up to 5,000, created in the background</span></h4>
+      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Add chargers <span class="font-normal normal-case text-slate-400">— up to {fmt(maxChargers, 0)}, created in the background</span></h4>
       <div class="mt-2 flex flex-wrap gap-2">
-        <button disabled={busy} onclick={() => create(100)} class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">{@render icon('plus')} 100 chargers</button>
+        <button disabled={busy} onclick={() => create(maxChargers)} class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">{@render icon('plus')} Fill to {fmt(maxChargers, 0)}</button>
       </div>
     </div>
 
