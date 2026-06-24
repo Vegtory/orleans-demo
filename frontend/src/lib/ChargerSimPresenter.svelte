@@ -1,5 +1,6 @@
 <script lang="ts">
   import { sessionHeaders } from '$lib/session';
+  import { toasts } from '$lib/toast.svelte';
 
   // The presenter's main-stage ChargerSim dashboard: global totals, per-attendee
   // cards and a big Kill all button. It polls a single grain call (the action
@@ -37,7 +38,6 @@
   }
 
   let dash = $state<Dashboard | null>(null);
-  let error = $state<string | null>(null);
   let loading = $state(true);
   let togglePending = $state(false);
   let goalInput = $state('');
@@ -82,10 +82,9 @@
       const res = await fetch(`${base}/dashboard`, { headers: authHeaders() });
       if (res.ok) {
         dash = await res.json();
-        error = null;
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       loading = false;
     }
@@ -99,7 +98,6 @@
     const previous = dash?.killSwitchEnabled ?? false;
     if (dash) dash = { ...dash, killSwitchEnabled: enabled };
     togglePending = true;
-    error = null;
     try {
       const res = await fetch(`${base}/killswitch`, {
         method: 'POST',
@@ -111,7 +109,7 @@
       if (!open) refresh();
     } catch (e) {
       if (dash) dash = { ...dash, killSwitchEnabled: previous };
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       togglePending = false;
     }
@@ -125,7 +123,6 @@
     const goal = Math.max(0, Number.isFinite(targetKw) ? targetKw : 0);
     if (dash) dash = { ...dash, goalActivePowerKw: goal };
     goalPending = true;
-    error = null;
     try {
       const res = await fetch(`${base}/goal`, {
         method: 'POST',
@@ -136,7 +133,7 @@
       goalInput = '';
     } catch (e) {
       if (dash) dash = { ...dash, goalActivePowerKw: previous };
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       goalPending = false;
     }
@@ -291,10 +288,6 @@
           <p class="mt-2 text-sm text-slate-500">No attendees have joined yet.</p>
         {/if}
       </div>
-
-      {#if error}
-        <p class="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>
-      {/if}
     </div>
   {/if}
 </section>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { sessionHeaders } from '$lib/session';
+  import { toasts } from '$lib/toast.svelte';
   import ChargerSimFleetGrid from '$lib/ChargerSimFleetGrid.svelte';
   import ChargerSimLeaderboard from '$lib/ChargerSimLeaderboard.svelte';
   import ChargerSimAchievements from '$lib/ChargerSimAchievements.svelte';
@@ -71,7 +72,6 @@
   let work = $state<WorkStatus>({ pendingChargers: 0, queuedCommands: 0 });
   const working = $derived(work.pendingChargers > 0 || work.queuedCommands > 0);
   let opened = $state<Charger | null>(null);
-  let error = $state<string | null>(null);
   let busy = $state(false);
 
   const base = $derived(`/api/chargersim/${encodeURIComponent(actionId)}/attendee/${encodeURIComponent(attendeeKey)}`);
@@ -135,12 +135,11 @@
       if (goalRes.ok) goal = await goalRes.json();
       if (opened) await reloadOpened();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     }
   }
 
   async function post(path: string, body?: unknown) {
-    error = null;
     busy = true;
     try {
       const res = await fetch(`${base}${path}`, {
@@ -153,7 +152,7 @@
       await refresh();
       return res;
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
       return null;
     } finally {
       busy = false;
@@ -165,14 +164,13 @@
   const killMine = () => post('/kill');
 
   async function openRandom(kind: 'active' | 'paused') {
-    error = null;
     try {
       const res = await fetch(`${base}/charger/random/${kind}`, { headers: sessionHeaders() });
       if (res.status === 404) throw new Error(`No ${kind} charger right now`);
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       opened = await res.json();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     }
   }
 
@@ -367,8 +365,4 @@
 
   <!-- Power sparkline + achievement badges -->
   <ChargerSimAchievements {summary} {powerHistory} {attendeeKey} />
-
-  {#if error}
-    <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-  {/if}
 </div>

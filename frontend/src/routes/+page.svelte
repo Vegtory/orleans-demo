@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { attendeeSession, sessionHeaders } from '$lib/session';
+  import { toasts } from '$lib/toast.svelte';
   import ChargerSimAttendee from '$lib/ChargerSimAttendee.svelte';
 
   interface QuestionView { actionId: string; title: string; options: string[]; }
@@ -13,7 +14,6 @@
 
   let name = $state('');
   let key = $state<string | null>(null);
-  let error = $state<string | null>(null);
   let busy = $state(false);
   let view = $state<AttendeeView | null>(null);
 
@@ -36,7 +36,6 @@
   }
 
   async function join() {
-    error = null;
     busy = true;
     try {
       const res = await fetch('/api/attendee', {
@@ -49,7 +48,7 @@
       attendeeSession.save({ key: key!, name });
       startPolling();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -61,15 +60,13 @@
       const res = await fetch(`/api/attendee/${encodeURIComponent(key)}`, { headers: sessionHeaders() });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       view = await res.json();
-      error = null;
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     }
   }
 
   async function answer(optionIndex: number) {
     if (!key) return;
-    error = null;
     try {
       const res = await fetch(`/api/attendee/${encodeURIComponent(key)}/answer`, {
         method: 'POST',
@@ -80,7 +77,7 @@
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       await refresh();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     }
   }
 
@@ -257,9 +254,5 @@
         </div>
       </div>
     </div>
-  {/if}
-
-  {#if error}
-    <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
   {/if}
 </div>

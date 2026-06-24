@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { presenterSession, sessionHeaders } from '$lib/session';
+  import { toasts } from '$lib/toast.svelte';
   import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
   import ReactionOverlay from '$lib/ReactionOverlay.svelte';
 
@@ -13,7 +14,6 @@
   let password = $state('');
   let unlocked = $state(false);
   let busy = $state(false);
-  let error = $state<string | null>(null);
 
   onMount(() => {
     const saved = presenterSession.load();
@@ -27,7 +27,6 @@
   // so a wrong password fails here with a clear message instead of leaving the
   // visualization silently empty.
   async function unlock() {
-    error = null;
     busy = true;
     try {
       const res = await fetch('/api/cluster/live', {
@@ -37,7 +36,7 @@
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       unlocked = true;
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -89,10 +88,6 @@
         </form>
       </div>
     </div>
-  {/if}
-
-  {#if error}
-    <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
   {/if}
 </div>
 

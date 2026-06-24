@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { presenterSession, sessionHeaders } from '$lib/session';
+  import { toasts } from '$lib/toast.svelte';
   import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
   import ChargerSimPresenter from '$lib/ChargerSimPresenter.svelte';
   import ReactionOverlay from '$lib/ReactionOverlay.svelte';
@@ -21,7 +22,6 @@
   // false but `key` is set, we're resuming a saved session and just need the
   // password again.
   let connected = $state(false);
-  let error = $state<string | null>(null);
   let busy = $state(false);
 
   let view = $state<PresenterView | null>(null);
@@ -70,7 +70,6 @@
   }
 
   async function create() {
-    error = null;
     busy = true;
     try {
       const res = await fetch('/api/presenter', {
@@ -83,7 +82,7 @@
       key = (await res.json()).key;
       await connect();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -92,12 +91,11 @@
   // Reconnect to a session restored from localStorage using the just-entered
   // password.
   async function reconnect() {
-    error = null;
     busy = true;
     try {
       await connect();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -153,9 +151,8 @@
       view = await res.json();
       await loadAttendees();
       if (selectedActionId) await loadResults(selectedActionId);
-      error = null;
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     }
   }
 
@@ -164,7 +161,6 @@
 
   async function createQuestion() {
     if (!key) return;
-    error = null;
     busy = true;
     try {
       const res = await fetch(`/api/presenter/${encodeURIComponent(key)}/actions`, {
@@ -177,7 +173,7 @@
       options = ['', ''];
       await refresh();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -185,7 +181,6 @@
 
   async function createChargerSim() {
     if (!key) return;
-    error = null;
     busy = true;
     try {
       const res = await fetch(`/api/presenter/${encodeURIComponent(key)}/chargersim`, {
@@ -197,7 +192,7 @@
       title = '';
       await refresh();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -233,7 +228,6 @@
   async function removeAction(actionId: string) {
     if (!key) return;
     if (!confirm('Remove this action? This will kill all its state and cannot be undone.')) return;
-    error = null;
     busy = true;
     try {
       const res = await fetch(`/api/presenter/${encodeURIComponent(key)}/actions/${actionId}`, {
@@ -244,7 +238,7 @@
       if (selectedActionId === actionId) { selectedActionId = null; results = null; }
       await refresh();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -269,7 +263,6 @@
     key = null;
     password = '';
     name = '';
-    error = null;
   }
 
   function pct(count: number, total: number) {
@@ -610,10 +603,6 @@
     <div class="mt-6">
       <SiloGrainCanvas {password} />
     </div>
-  {/if}
-
-  {#if error}
-    <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
   {/if}
 </div>
 
