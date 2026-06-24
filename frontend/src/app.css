@@ -9,3 +9,20 @@ html,
 body {
   height: 100%;
 }
+
+/*
+ * Disable the browser's double-tap-to-zoom gesture on interactive elements.
+ * This removes the ~300ms tap delay and the accidental zoom when a button is
+ * tapped twice on touch devices, while still allowing pinch-to-zoom elsewhere
+ * (so accessibility zoom is preserved).
+ */
+button,
+a,
+input,
+select,
+textarea,
+label,
+[role='button'],
+summary {
+  touch-action: manipulation;
+}
