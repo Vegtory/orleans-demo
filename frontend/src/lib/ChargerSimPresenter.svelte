@@ -33,12 +33,15 @@
     attendees: FleetSummary[];
     recentEvents: string[];
     killSwitchEnabled: boolean;
+    goalActivePowerKw: number;
   }
 
   let dash = $state<Dashboard | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(true);
   let togglePending = $state(false);
+  let goalInput = $state('');
+  let goalPending = $state(false);
   // svelte-ignore state_referenced_locally -- intentional: seed once from the prop
   let open = $state(defaultOpen);
 
@@ -114,6 +117,31 @@
     }
   }
 
+  // Set (or clear, with 0) the room-wide collaborative power goal. Optimistically
+  // reflects the new target so the dashboard updates without waiting for the poll.
+  async function setGoal(targetKw: number) {
+    if (goalPending) return;
+    const previous = dash?.goalActivePowerKw ?? 0;
+    const goal = Math.max(0, Number.isFinite(targetKw) ? targetKw : 0);
+    if (dash) dash = { ...dash, goalActivePowerKw: goal };
+    goalPending = true;
+    error = null;
+    try {
+      const res = await fetch(`${base}/goal`, {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify({ targetActivePowerKw: goal })
+      });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      goalInput = '';
+    } catch (e) {
+      if (dash) dash = { ...dash, goalActivePowerKw: previous };
+      error = e instanceof Error ? e.message : 'Unknown error';
+    } finally {
+      goalPending = false;
+    }
+  }
+
   const fmt = (n: number, d = 1) => (n ?? 0).toLocaleString(undefined, { maximumFractionDigits: d });
 </script>
 
@@ -184,6 +212,46 @@
           <p class="text-2xl font-black tabular-nums text-red-200">{fmt(dash?.global.killedCount ?? 0, 0)}</p>
         </div>
       </div>
+
+      <!-- Collaborative goal control -->
+      {#snippet goalProgress()}
+        {@const target = dash?.goalActivePowerKw ?? 0}
+        {@const current = dash?.global.totalActivePowerKw ?? 0}
+        {@const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0}
+        {@const reached = target > 0 && current >= target}
+        <div class="mt-5 rounded-xl bg-slate-800 px-4 py-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">🎯 Room goal</p>
+            {#if target > 0}
+              <span class="text-sm font-bold tabular-nums {reached ? 'text-green-300' : 'text-indigo-300'}">
+                {fmt(current)} / {fmt(target, 0)} kW · {pct.toFixed(0)}%{reached ? ' — reached!' : ''}
+              </span>
+            {:else}
+              <span class="text-sm text-slate-500">No goal set</span>
+            {/if}
+          </div>
+          {#if target > 0}
+            <div class="mt-2 h-3 w-full overflow-hidden rounded-full bg-slate-700">
+              <div class="h-full rounded-full transition-[width] duration-700 ease-out {reached ? 'bg-green-500' : 'bg-indigo-500'}" style="width: {pct}%"></div>
+            </div>
+          {/if}
+          <form class="mt-3 flex flex-wrap items-center gap-2" onsubmit={(e) => { e.preventDefault(); const v = parseFloat(goalInput); if (Number.isFinite(v) && v > 0) setGoal(v); }}>
+            <input
+              bind:value={goalInput}
+              type="number"
+              min="0"
+              step="100"
+              placeholder="target kW"
+              class="w-32 rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400"
+            />
+            <button type="submit" disabled={goalPending} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50">Set goal</button>
+            {#if target > 0}
+              <button type="button" disabled={goalPending} onclick={() => setGoal(0)} class="rounded-lg border border-slate-600 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50">Clear</button>
+            {/if}
+          </form>
+        </div>
+      {/snippet}
+      {@render goalProgress()}
 
       <!-- Event ticker -->
       {#if dash?.recentEvents?.length}

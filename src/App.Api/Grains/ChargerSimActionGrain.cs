@@ -13,6 +13,9 @@ public sealed class ChargerSimActionState
     [Id(1)] public HashSet<string> Attendees { get; set; } = new();
 
     [Id(2)] public bool KillSwitchEnabled { get; set; }
+
+    /// <summary>Room-wide collaborative target total active power (kW). 0 means no goal set.</summary>
+    [Id(3)] public double GoalActivePowerKw { get; set; }
 }
 
 /// <summary>
@@ -125,6 +128,56 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
         return _cachedDashboard! with { RecentEvents = _recentEvents.ToArray() };
     }
 
+    public async Task<IReadOnlyList<ChargerFleetSummary>> GetLeaderboard()
+    {
+        // Reuse the dashboard cache: keep the refresh timer alive and build the
+        // snapshot inline on the first call, exactly like GetDashboard. Attendees
+        // poll this directly, so leaning on the cache keeps the fan-out at ≤1/sec.
+        _lastDashboardRequest = DateTimeOffset.UtcNow;
+        EnsureDashboardTimer();
+        if (_cachedDashboard is null)
+        {
+            await RefreshDashboard();
+        }
+
+        return _cachedDashboard!.Attendees;
+    }
+
+    public async Task SetGoal(double targetActivePowerKw)
+    {
+        var goal = Math.Max(0, double.IsNaN(targetActivePowerKw) ? 0 : targetActivePowerKw);
+        if (_state.State.GoalActivePowerKw == goal) return;
+
+        _state.State.GoalActivePowerKw = goal;
+        await _state.WriteStateAsync();
+
+        // Reflect the new goal in the cache immediately so the next poll doesn't lag.
+        if (_cachedDashboard is not null)
+        {
+            _cachedDashboard = _cachedDashboard with { GoalActivePowerKw = goal };
+        }
+
+        await RecordEvent(goal > 0
+            ? $"Presenter set a fleet goal of {goal:N0} kW"
+            : "Presenter cleared the fleet goal");
+    }
+
+    public async Task<ChargerSimGoalStatus> GetGoalStatus()
+    {
+        // Reuse the dashboard cache exactly like GetLeaderboard, so attendees polling
+        // the shared progress bar never trigger more than one fan-out per second.
+        _lastDashboardRequest = DateTimeOffset.UtcNow;
+        EnsureDashboardTimer();
+        if (_cachedDashboard is null)
+        {
+            await RefreshDashboard();
+        }
+
+        return new ChargerSimGoalStatus(
+            _state.State.GoalActivePowerKw,
+            _cachedDashboard!.Global.TotalActivePowerKw);
+    }
+
     // Recomputes the cached dashboard by fanning out to the attendee aggregates.
     // Runs on _dashboardTimer (and inline on the first GetDashboard call). The only
     // shared state it writes is the _cachedDashboard reference, assigned after its
@@ -149,7 +202,8 @@ public sealed class ChargerSimActionGrain : Grain, IChargerSimActionGrain
             global,
             summaries.ToArray(),
             _recentEvents.ToArray(),
-            _state.State.KillSwitchEnabled);
+            _state.State.KillSwitchEnabled,
+            _state.State.GoalActivePowerKw);
     }
 
     private void EnsureDashboardTimer()

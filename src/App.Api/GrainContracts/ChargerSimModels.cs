@@ -69,6 +69,7 @@ public sealed record ChargerAggregateContribution
     [Id(5)] public double ActivePowerKw { get; init; }
     [Id(6)] public double SessionKwh { get; init; }
     [Id(7)] public DateTimeOffset UpdatedAt { get; init; }
+    [Id(8)] public double MaxPowerKw { get; init; }
 }
 
 /// <summary>A live, roll-up view of one attendee's charger fleet, maintained incrementally.</summary>
@@ -101,6 +102,17 @@ public sealed record ChargerSimWorkStatus(
     [property: Id(0)] int PendingChargers,
     [property: Id(1)] int QueuedCommands);
 
+/// <summary>
+/// A compact per-charger cell for the attendee's live fleet grid: just enough to
+/// colour a cell by state and scale its brightness by load. Sampled from the
+/// aggregate's in-memory contributions — never read from the charger grains.
+/// </summary>
+[GenerateSerializer]
+public sealed record ChargerCellState(
+    [property: Id(0)] ChargerSimState State,
+    [property: Id(1)] double ActivePowerKw,
+    [property: Id(2)] double MaxPowerKw);
+
 /// <summary>A point-in-time snapshot of one charger, returned only when an attendee opens it.</summary>
 [GenerateSerializer]
 public sealed record ChargerSnapshot(
@@ -123,7 +135,20 @@ public sealed record ChargerSimDashboard(
     [property: Id(1)] ChargerFleetSummary Global,
     [property: Id(2)] ChargerFleetSummary[] Attendees,
     [property: Id(3)] string[] RecentEvents,
-    [property: Id(4)] bool KillSwitchEnabled = false);
+    [property: Id(4)] bool KillSwitchEnabled = false,
+    [property: Id(5)] double GoalActivePowerKw = 0);
+
+/// <summary>
+/// The room-wide collaborative goal and the fleet's progress toward it. The
+/// presenter sets a target total active power; every attendee sees the same live
+/// progress bar so the whole room pushes for it together. A goal of 0 means "no
+/// goal set". Served from the action grain's cached dashboard so attendee polling
+/// stays cheap.
+/// </summary>
+[GenerateSerializer]
+public sealed record ChargerSimGoalStatus(
+    [property: Id(0)] double GoalActivePowerKw,
+    [property: Id(1)] double CurrentActivePowerKw);
 
 /// <summary>
 /// Stable, readable grain-key conventions for the ChargerSim grain graph, plus

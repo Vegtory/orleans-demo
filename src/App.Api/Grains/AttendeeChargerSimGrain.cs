@@ -213,6 +213,12 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         return summary;
     }
 
+    public async Task<IReadOnlyList<ChargerCellState>> GetStateSample(int take)
+    {
+        if (await HandleIfKilled()) return [];
+        return await Aggregate.GetStateSample(take);
+    }
+
     public async Task<ChargerSnapshot?> GetCharger(string chargerId)
     {
         if (await HandleIfKilled()) return null;

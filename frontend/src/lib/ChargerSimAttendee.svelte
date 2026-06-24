@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { sessionHeaders } from '$lib/session';
+  import ChargerSimFleetGrid from '$lib/ChargerSimFleetGrid.svelte';
+  import ChargerSimLeaderboard from '$lib/ChargerSimLeaderboard.svelte';
+  import ChargerSimAchievements from '$lib/ChargerSimAchievements.svelte';
+  import ChargerSimGoal from '$lib/ChargerSimGoal.svelte';
 
   // The attendee's ChargerSim control room. Shown on the main page when a
   // ChargerSim action is live. It reads aggregate summaries (cheap) and only
@@ -36,9 +40,35 @@
     queuedCommands: number;
   }
 
+  interface Cell {
+    state: number;
+    activePowerKw: number;
+    maxPowerKw: number;
+  }
+
+  interface LeaderboardRow {
+    attendeeId: string;
+    attendeeName: string;
+    totalChargers: number;
+    activeSessionCount: number;
+    totalActivePowerKw: number;
+  }
+
+  interface GoalStatus {
+    goalActivePowerKw: number;
+    currentActivePowerKw: number;
+  }
+
+  // How many points of power history to keep for the sparkline (~2 min at the 2s poll).
+  const POWER_HISTORY_MAX = 60;
+
   const STATE_LABELS = ['No session', 'Active session', 'Paused', 'Killed'];
 
   let summary = $state<FleetSummary | null>(null);
+  let cells = $state<Cell[]>([]);
+  let leaderboard = $state<LeaderboardRow[]>([]);
+  let goal = $state<GoalStatus | null>(null);
+  let powerHistory = $state<number[]>([]);
   let work = $state<WorkStatus>({ pendingChargers: 0, queuedCommands: 0 });
   const working = $derived(work.pendingChargers > 0 || work.queuedCommands > 0);
   let opened = $state<Charger | null>(null);
@@ -75,12 +105,22 @@
 
   async function refresh() {
     try {
-      const [sumRes, workRes] = await Promise.all([
+      const [sumRes, workRes, gridRes, lbRes, goalRes] = await Promise.all([
         fetch(`${base}/summary`, { headers: sessionHeaders() }),
-        fetch(`${base}/work`, { headers: sessionHeaders() })
+        fetch(`${base}/work`, { headers: sessionHeaders() }),
+        fetch(`${base}/grid`, { headers: sessionHeaders() }),
+        fetch(`/api/chargersim/${encodeURIComponent(actionId)}/leaderboard`, { headers: sessionHeaders() }),
+        fetch(`/api/chargersim/${encodeURIComponent(actionId)}/goal`, { headers: sessionHeaders() })
       ]);
-      if (sumRes.ok) summary = await sumRes.json();
+      if (sumRes.ok) {
+        summary = await sumRes.json();
+        // Track total active power over time for the sparkline.
+        powerHistory = [...powerHistory, summary?.totalActivePowerKw ?? 0].slice(-POWER_HISTORY_MAX);
+      }
       if (workRes.ok) work = await workRes.json();
+      if (gridRes.ok) cells = await gridRes.json();
+      if (lbRes.ok) leaderboard = await lbRes.json();
+      if (goalRes.ok) goal = await goalRes.json();
       if (opened) await reloadOpened();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
@@ -199,6 +239,15 @@
     {@render tile('Session energy', `${fmt(summary?.totalSessionKwh ?? 0)} kWh`)}
   </div>
 
+  <!-- Room-wide collaborative goal (shown only when the presenter has set one) -->
+  <ChargerSimGoal {goal} />
+
+  <!-- Power sparkline + achievement badges -->
+  <ChargerSimAchievements {summary} {powerHistory} {attendeeKey} />
+
+  <!-- Live fleet grid -->
+  <ChargerSimFleetGrid {cells} total={summary?.totalChargers ?? 0} />
+
   <!-- Create -->
   <div class="mt-5">
     <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Request chargers (max 5,000, created in the background)</h3>
@@ -260,6 +309,9 @@
       </div>
     </div>
   {/if}
+
+  <!-- Live leaderboard across all attendees -->
+  <ChargerSimLeaderboard rows={leaderboard} {attendeeKey} />
 
   <!-- Kill my chargers -->
   <div class="mt-6 border-t border-slate-100 pt-4">

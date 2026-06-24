@@ -60,6 +60,9 @@ public interface IAttendeeChargerSimGrain : IGrainWithStringKey
 
     Task<ChargerFleetSummary> GetSummary();
 
+    /// <summary>A stable sample of up to <paramref name="take"/> charger cells for the live fleet grid.</summary>
+    Task<IReadOnlyList<ChargerCellState>> GetStateSample(int take);
+
     Task<ChargerSnapshot?> GetCharger(string chargerId);
     Task<ChargerSnapshot?> GetRandomActiveCharger();
     Task<ChargerSnapshot?> GetRandomPausedCharger();

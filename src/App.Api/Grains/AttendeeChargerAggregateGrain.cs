@@ -121,6 +121,18 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
         return Task.FromResult(recent);
     }
 
+    public Task<IReadOnlyList<ChargerCellState>> GetStateSample(int take)
+    {
+        // Dictionary order (insertion order) is stable across polls as long as no
+        // entries are removed — and they never are (killed chargers are upserted to
+        // the Killed state, not deleted) — so a grid cell keeps its position.
+        IReadOnlyList<ChargerCellState> sample = _state.Contributions.Values
+            .Take(Math.Max(0, take))
+            .Select(c => new ChargerCellState(c.State, c.ActivePowerKw, c.MaxPowerKw))
+            .ToList();
+        return Task.FromResult(sample);
+    }
+
     public Task<IReadOnlyList<string>> SelectChargerIds(ChargerSelectionFilter filter, int take)
     {
         IReadOnlyList<string> ids = _state.Contributions.Values

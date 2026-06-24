@@ -32,6 +32,20 @@ public interface IChargerSimActionGrain : IGrainWithStringKey
     /// <summary>Global + per-attendee summaries + recent event messages, in one call.</summary>
     Task<ChargerSimDashboard> GetDashboard();
 
+    /// <summary>
+    /// The per-attendee fleet summaries for an attendee-facing leaderboard. Served
+    /// from the same cached dashboard snapshot as <see cref="GetDashboard"/>, so
+    /// attendee polling never triggers more than one fan-out per second regardless
+    /// of how many attendees poll. Callers rank the result client-side.
+    /// </summary>
+    Task<IReadOnlyList<ChargerFleetSummary>> GetLeaderboard();
+
+    /// <summary>Sets the room-wide collaborative target total active power (kW); 0 clears it.</summary>
+    Task SetGoal(double targetActivePowerKw);
+
+    /// <summary>The current goal plus the fleet's live total active power, for the shared progress bar.</summary>
+    Task<ChargerSimGoalStatus> GetGoalStatus();
+
     /// <summary>Sends a kill command to every registered attendee's controller grain.</summary>
     Task KillAllChargers();
 
