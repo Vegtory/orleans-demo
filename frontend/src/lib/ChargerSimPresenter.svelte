@@ -43,7 +43,7 @@
   let togglePending = $state(false);
   let goalInput = $state('');
   let goalPending = $state(false);
-  let maxInput = $state('');
+  let maxInput = $state<number | null>(null);
   let maxPending = $state(false);
   // svelte-ignore state_referenced_locally -- intentional: seed once from the prop
   let open = $state(defaultOpen);
@@ -160,7 +160,7 @@
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const applied = await res.json();
       if (dash) dash = { ...dash, maxChargersPerAttendee: applied.maxChargersPerAttendee ?? max };
-      maxInput = '';
+      maxInput = null;
     } catch (e) {
       if (dash) dash = { ...dash, maxChargersPerAttendee: previous };
       toasts.error(e instanceof Error ? e.message : 'Unknown error');
@@ -247,13 +247,12 @@
           <span class="text-sm font-bold tabular-nums text-indigo-300">{fmt(dash?.maxChargersPerAttendee ?? 100, 0)}</span>
         </div>
         <p class="mt-1 text-xs text-slate-500">Each attendee can create up to this many live chargers. Default 100.</p>
-        <form class="mt-3 flex flex-wrap items-center gap-2" onsubmit={(e) => { e.preventDefault(); const v = parseInt(maxInput, 10); if (Number.isFinite(v) && v > 0) setMaxChargers(v); }}>
+        <form class="mt-3 flex flex-wrap items-center gap-2" onsubmit={(e) => { e.preventDefault(); if (maxInput != null && Number.isFinite(maxInput) && maxInput > 0) setMaxChargers(maxInput); }}>
           <input
             bind:value={maxInput}
             type="number"
             min="1"
             max="5000"
-            step="50"
             placeholder={`${dash?.maxChargersPerAttendee ?? 100}`}
             class="w-32 rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400"
           />
