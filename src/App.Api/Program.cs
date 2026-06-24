@@ -4,6 +4,7 @@ using App.Api.GrainContracts;
 using App.Api.Observability;
 using Microsoft.AspNetCore.RateLimiting;
 using Orleans.Configuration;
+using Orleans.Dashboard;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +23,12 @@ var builder = WebApplication.CreateBuilder(args);
 var clustering = builder.Configuration["ORLEANS_CLUSTERING"]
     ?? builder.Configuration["OrleansClustering"]
     ?? "Local";
+
+// The official Orleans dashboard (preview) is opt-in. It exposes cluster
+// internals (silos, grain activations, method profiling, reminders, live logs),
+// so it is off by default and only wired up — silo services + /dashboard
+// endpoints — when ORLEANS_DASHBOARD=true. Enable it behind a trusted network.
+var dashboardEnabled = builder.Configuration.GetValue<bool>("ORLEANS_DASHBOARD");
 
 builder.Host.UseOrleans(silo =>
 {
@@ -68,6 +75,13 @@ builder.Host.UseOrleans(silo =>
     silo.Services.AddSingleton<CallTraceRuntimeSwitch>();
     silo.AddOutgoingGrainCallFilter<GrainCallTraceFilter>();
     silo.AddGrainService<CallTraceReporterGrainService>();
+
+    // Official Orleans dashboard services (only when ORLEANS_DASHBOARD=true). The
+    // matching endpoints are mapped onto this app's pipeline below.
+    if (dashboardEnabled)
+    {
+        silo.AddDashboard();
+    }
 });
 
 // Static presenter password. Every presenter request must send it in the
@@ -137,6 +151,12 @@ app.UseRateLimiter();
 // Serve the SvelteKit static build from wwwroot.
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// Orleans dashboard endpoints at /dashboard (only when ORLEANS_DASHBOARD=true).
+if (dashboardEnabled)
+{
+    app.MapOrleansDashboard(routePrefix: "/dashboard");
+}
 
 // ---------------------------------------------------------------------------
 // API endpoints. Grouped under /api and rate limited.
