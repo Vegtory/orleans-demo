@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { presenterSession, sessionHeaders } from '$lib/session';
+  import { toasts } from '$lib/toast.svelte';
   import SiloGrainCanvas from '$lib/SiloGrainCanvas.svelte';
   import ChargerSimPresenter from '$lib/ChargerSimPresenter.svelte';
   import ReactionOverlay from '$lib/ReactionOverlay.svelte';
@@ -20,7 +21,6 @@
   let key = $state<string | null>(null);
   let connected = $state(false);
   let busy = $state(false);
-  let error = $state<string | null>(null);
   let view = $state<PresenterView | null>(null);
 
   // Only the ChargerSim actions (kind === 1) get a dashboard.
@@ -52,7 +52,6 @@
   // Create a presenter grain (idempotent for a given name) to obtain a key, then
   // connect. Used when there is no saved session to resume.
   async function create() {
-    error = null;
     busy = true;
     try {
       const res = await fetch('/api/presenter', {
@@ -65,7 +64,7 @@
       key = (await res.json()).key;
       await connect();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -74,7 +73,6 @@
   // Verify the password against the grain, then start polling for actions.
   async function connect() {
     if (!key) return;
-    error = null;
     busy = true;
     try {
       const res = await fetch(`/api/presenter/${encodeURIComponent(key)}`, { headers: authHeaders() });
@@ -85,7 +83,7 @@
       connected = true;
       poll = setInterval(refresh, 2000);
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       busy = false;
     }
@@ -103,9 +101,8 @@
       }
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       view = await res.json();
-      error = null;
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
+      toasts.error(e instanceof Error ? e.message : 'Unknown error');
     }
   }
 
@@ -114,7 +111,6 @@
     key = null;
     password = '';
     name = '';
-    error = null;
   }
 
   onDestroy(() => { if (poll) clearInterval(poll); });
@@ -229,10 +225,6 @@
 
       <SiloGrainCanvas {password} defaultExpanded showAllTypes />
     </div>
-  {/if}
-
-  {#if error}
-    <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
   {/if}
 </div>
 
