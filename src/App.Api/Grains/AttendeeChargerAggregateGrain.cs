@@ -123,21 +123,39 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
 
     public Task<IReadOnlyList<ChargerCellState>> GetStateSample(int take)
     {
-        // We sample in dictionary (insertion) order, which is stable across polls
-        // since entries are never removed (killed chargers are upserted to the Killed
-        // state, not deleted) — so the set of sampled chargers is stable as the fleet
-        // grows. We then scatter their grid positions with a deterministic per-charger
-        // hash.
-        //
-        // Why scatter: chargers are created and fire their 30-second reminders in
-        // roughly contiguous number order, so insertion order clusters same-aged
-        // chargers together. Rendered in that order, a wave of timers firing lights up
-        // a solid block of the grid at once. Ordering by a hash of the (immutable)
-        // charger id spreads each wave evenly across the whole grid, so transitions
-        // shimmer across the fleet instead of marching as blocks — and because the hash
-        // depends only on the id, every cell still keeps a fixed position between polls.
-        IReadOnlyList<ChargerCellState> sample = _state.Contributions.Values
-            .Take(Math.Max(0, take))
+        take = Math.Max(0, take);
+
+        // Killed chargers are never deleted from the aggregate — they're upserted to
+        // the Killed state so their grid cell stays put — so over a long session the
+        // kill-and-recreate churn can grow the contribution count past `take`. When it
+        // does, a naive insertion-order sample fills up with stale killed cells and can
+        // crowd the current live fleet out of the grid entirely. So once we're over
+        // capacity, drop killed chargers first: keep every live/paused/idle charger we
+        // can fit and only backfill any leftover slots with killed ones. Within each
+        // group we keep insertion order, which is stable across polls (entries are never
+        // removed), so the sampled set stays stable as the fleet grows.
+        var values = _state.Contributions.Values;
+        IEnumerable<ChargerAggregateContribution> selected;
+        if (values.Count <= take)
+        {
+            selected = values;
+        }
+        else
+        {
+            var live = values.Where(c => c.State != ChargerSimState.Killed).Take(take).ToList();
+            var killed = values.Where(c => c.State == ChargerSimState.Killed).Take(take - live.Count);
+            selected = live.Concat(killed);
+        }
+
+        // Scatter the chosen cells' grid positions with a deterministic per-charger hash.
+        // Why scatter: chargers are created and fire their 30-second reminders in roughly
+        // contiguous number order, so insertion order clusters same-aged chargers together.
+        // Rendered in that order, a wave of timers firing lights up a solid block of the
+        // grid at once. Ordering by a hash of the (immutable) charger id spreads each wave
+        // evenly across the whole grid, so transitions shimmer across the fleet instead of
+        // marching as blocks — and because the hash depends only on the id, every cell
+        // still keeps a fixed position between polls.
+        IReadOnlyList<ChargerCellState> sample = selected
             .OrderBy(c => Scatter(c.ChargerId))
             .Select(c => new ChargerCellState(c.State, c.ActivePowerKw, c.MaxPowerKw))
             .ToList();

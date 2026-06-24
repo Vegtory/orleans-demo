@@ -146,6 +146,41 @@ public sealed class ChargerSimTests
     }
 
     [Fact]
+    public async Task GetStateSample_drops_killed_chargers_first_when_over_capacity()
+    {
+        var agg = NewAggregate();
+        // Two live chargers and three killed ones, but only room for three cells.
+        await agg.UpsertContribution(Contribution("CP-000001", 1, ChargerSimState.ActiveSession, power: 7, maxPower: 11));
+        await agg.UpsertContribution(Contribution("CP-000002", 1, ChargerSimState.Killed));
+        await agg.UpsertContribution(Contribution("CP-000003", 1, ChargerSimState.PausedWithSession));
+        await agg.UpsertContribution(Contribution("CP-000004", 1, ChargerSimState.Killed));
+        await agg.UpsertContribution(Contribution("CP-000005", 1, ChargerSimState.Killed));
+
+        var sample = await agg.GetStateSample(3);
+
+        // Both live chargers survive; the third slot is backfilled with one killed cell.
+        Assert.Equal(3, sample.Count);
+        Assert.Contains(sample, c => c.State == ChargerSimState.ActiveSession);
+        Assert.Contains(sample, c => c.State == ChargerSimState.PausedWithSession);
+        Assert.Equal(1, sample.Count(c => c.State == ChargerSimState.Killed));
+    }
+
+    [Fact]
+    public async Task GetStateSample_keeps_only_live_chargers_when_live_alone_fills_capacity()
+    {
+        var agg = NewAggregate();
+        await agg.UpsertContribution(Contribution("CP-000001", 1, ChargerSimState.ActiveSession, power: 7, maxPower: 11));
+        await agg.UpsertContribution(Contribution("CP-000002", 1, ChargerSimState.NoSession));
+        await agg.UpsertContribution(Contribution("CP-000003", 1, ChargerSimState.Killed));
+
+        var sample = await agg.GetStateSample(2);
+
+        // Two live cells exactly fill the grid, so no killed cell is shown at all.
+        Assert.Equal(2, sample.Count);
+        Assert.DoesNotContain(sample, c => c.State == ChargerSimState.Killed);
+    }
+
+    [Fact]
     public async Task GetLeaderboard_returns_one_summary_per_registered_attendee()
     {
         var actionId = Guid.NewGuid().ToString("N");
