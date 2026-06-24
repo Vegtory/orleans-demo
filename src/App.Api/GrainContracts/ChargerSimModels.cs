@@ -135,7 +135,20 @@ public sealed record ChargerSimDashboard(
     [property: Id(1)] ChargerFleetSummary Global,
     [property: Id(2)] ChargerFleetSummary[] Attendees,
     [property: Id(3)] string[] RecentEvents,
-    [property: Id(4)] bool KillSwitchEnabled = false);
+    [property: Id(4)] bool KillSwitchEnabled = false,
+    [property: Id(5)] double GoalActivePowerKw = 0);
+
+/// <summary>
+/// The room-wide collaborative goal and the fleet's progress toward it. The
+/// presenter sets a target total active power; every attendee sees the same live
+/// progress bar so the whole room pushes for it together. A goal of 0 means "no
+/// goal set". Served from the action grain's cached dashboard so attendee polling
+/// stays cheap.
+/// </summary>
+[GenerateSerializer]
+public sealed record ChargerSimGoalStatus(
+    [property: Id(0)] double GoalActivePowerKw,
+    [property: Id(1)] double CurrentActivePowerKw);
 
 /// <summary>
 /// Stable, readable grain-key conventions for the ChargerSim grain graph, plus

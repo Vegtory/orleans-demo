@@ -171,6 +171,43 @@ public sealed class ChargerSimTests
     }
 
     [Fact]
+    public async Task Goal_is_set_by_presenter_and_tracks_live_fleet_power()
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        var action = _cluster.GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId));
+        await action.Activate();
+
+        // No goal yet.
+        var before = await action.GetGoalStatus();
+        Assert.Equal(0, before.GoalActivePowerKw, 3);
+
+        await action.SetGoal(500);
+
+        var attendee = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
+            ChargerSimKeys.Attendee(actionId, "alice-goal"));
+        await attendee.Register("Alice");
+        await attendee.CreateChargers(20);
+        await Drain(attendee);
+        await attendee.SendBatchCommand(BatchChargerCommandType.StartSessions, 20);
+        await Drain(attendee);
+
+        // The status reports the target plus the fleet's live total power. The power
+        // is served from the dashboard cache (refreshed ~1s), so poll briefly for it.
+        ChargerSimGoalStatus status = await action.GetGoalStatus();
+        for (var i = 0; i < 60 && status.CurrentActivePowerKw <= 0; i++)
+        {
+            await Task.Delay(50);
+            status = await action.GetGoalStatus();
+        }
+        Assert.Equal(500, status.GoalActivePowerKw, 3);
+        Assert.True(status.CurrentActivePowerKw > 0, "expected live power from active sessions");
+
+        // Clearing the goal resets it to zero.
+        await action.SetGoal(0);
+        Assert.Equal(0, (await action.GetGoalStatus()).GoalActivePowerKw, 3);
+    }
+
+    [Fact]
     public async Task Inactive_action_rejects_attendee_commands()
     {
         var actionId = Guid.NewGuid().ToString("N");

@@ -4,6 +4,7 @@
   import ChargerSimFleetGrid from '$lib/ChargerSimFleetGrid.svelte';
   import ChargerSimLeaderboard from '$lib/ChargerSimLeaderboard.svelte';
   import ChargerSimAchievements from '$lib/ChargerSimAchievements.svelte';
+  import ChargerSimGoal from '$lib/ChargerSimGoal.svelte';
 
   // The attendee's ChargerSim control room. Shown on the main page when a
   // ChargerSim action is live. It reads aggregate summaries (cheap) and only
@@ -53,6 +54,11 @@
     totalActivePowerKw: number;
   }
 
+  interface GoalStatus {
+    goalActivePowerKw: number;
+    currentActivePowerKw: number;
+  }
+
   // How many points of power history to keep for the sparkline (~2 min at the 2s poll).
   const POWER_HISTORY_MAX = 60;
 
@@ -61,6 +67,7 @@
   let summary = $state<FleetSummary | null>(null);
   let cells = $state<Cell[]>([]);
   let leaderboard = $state<LeaderboardRow[]>([]);
+  let goal = $state<GoalStatus | null>(null);
   let powerHistory = $state<number[]>([]);
   let work = $state<WorkStatus>({ pendingChargers: 0, queuedCommands: 0 });
   const working = $derived(work.pendingChargers > 0 || work.queuedCommands > 0);
@@ -98,11 +105,12 @@
 
   async function refresh() {
     try {
-      const [sumRes, workRes, gridRes, lbRes] = await Promise.all([
+      const [sumRes, workRes, gridRes, lbRes, goalRes] = await Promise.all([
         fetch(`${base}/summary`, { headers: sessionHeaders() }),
         fetch(`${base}/work`, { headers: sessionHeaders() }),
         fetch(`${base}/grid`, { headers: sessionHeaders() }),
-        fetch(`/api/chargersim/${encodeURIComponent(actionId)}/leaderboard`, { headers: sessionHeaders() })
+        fetch(`/api/chargersim/${encodeURIComponent(actionId)}/leaderboard`, { headers: sessionHeaders() }),
+        fetch(`/api/chargersim/${encodeURIComponent(actionId)}/goal`, { headers: sessionHeaders() })
       ]);
       if (sumRes.ok) {
         summary = await sumRes.json();
@@ -112,6 +120,7 @@
       if (workRes.ok) work = await workRes.json();
       if (gridRes.ok) cells = await gridRes.json();
       if (lbRes.ok) leaderboard = await lbRes.json();
+      if (goalRes.ok) goal = await goalRes.json();
       if (opened) await reloadOpened();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Unknown error';
@@ -229,6 +238,9 @@
     {@render tile('Active power', `${fmt(summary?.totalActivePowerKw ?? 0)} kW`, 'text-indigo-600')}
     {@render tile('Session energy', `${fmt(summary?.totalSessionKwh ?? 0)} kWh`)}
   </div>
+
+  <!-- Room-wide collaborative goal (shown only when the presenter has set one) -->
+  <ChargerSimGoal {goal} />
 
   <!-- Power sparkline + achievement badges -->
   <ChargerSimAchievements {summary} {powerHistory} {attendeeKey} />

@@ -258,6 +258,14 @@ api.MapPost("/presenter/{key}/chargersim/{actionId}/killswitch", async (string k
     return Results.Ok(new { killSwitchEnabled = body.Enabled });
 });
 
+// Presenter sets (or clears, with 0) the room-wide collaborative power goal.
+api.MapPost("/presenter/{key}/chargersim/{actionId}/goal", async (string key, string actionId, GoalRequest body, HttpRequest req, IGrainFactory grains) =>
+{
+    if (!PresenterOk(req)) return Results.Unauthorized();
+    await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).SetGoal(body.TargetActivePowerKw);
+    return Results.Ok(new { goalActivePowerKw = Math.Max(0, body.TargetActivePowerKw) });
+});
+
 api.MapPost("/presenter/{key}/actions/{actionId}/activate", async (string key, string actionId, HttpRequest req, IGrainFactory grains) =>
 {
     if (!PresenterOk(req)) return Results.Unauthorized();
@@ -420,6 +428,11 @@ api.MapGet("/chargersim/{actionId}/attendee/{key}/summary", async (string action
 api.MapGet("/chargersim/{actionId}/leaderboard", async (string actionId, IGrainFactory grains) =>
     Results.Ok(await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).GetLeaderboard()));
 
+// Attendee-facing collaborative goal: the presenter's room-wide power target plus the
+// fleet's live total, for the shared progress bar. Cache-backed, like the leaderboard.
+api.MapGet("/chargersim/{actionId}/goal", async (string actionId, IGrainFactory grains) =>
+    Results.Ok(await grains.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId)).GetGoalStatus()));
+
 // Outstanding background work (chargers still being created, commands still queued),
 // so the attendee UI can show a "working…" indicator while the worker drains.
 api.MapGet("/chargersim/{actionId}/attendee/{key}/work", async (string actionId, string key, IGrainFactory grains) =>
@@ -517,4 +530,5 @@ internal sealed record TraceToggleRequest(bool Enabled);
 internal sealed record CreateChargerSimRequest(string Title);
 internal sealed record AmountRequest(int Amount);
 internal sealed record KillSwitchRequest(bool Enabled);
+internal sealed record GoalRequest(double TargetActivePowerKw);
 internal sealed record BatchRequest(string Command, int Amount);

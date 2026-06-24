@@ -40,6 +40,12 @@ public interface IChargerSimActionGrain : IGrainWithStringKey
     /// </summary>
     Task<IReadOnlyList<ChargerFleetSummary>> GetLeaderboard();
 
+    /// <summary>Sets the room-wide collaborative target total active power (kW); 0 clears it.</summary>
+    Task SetGoal(double targetActivePowerKw);
+
+    /// <summary>The current goal plus the fleet's live total active power, for the shared progress bar.</summary>
+    Task<ChargerSimGoalStatus> GetGoalStatus();
+
     /// <summary>Sends a kill command to every registered attendee's controller grain.</summary>
     Task KillAllChargers();
 
