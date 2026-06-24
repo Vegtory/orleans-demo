@@ -438,12 +438,31 @@ api.MapGet("/chargersim/{actionId}/goal", async (string actionId, IGrainFactory 
 api.MapGet("/chargersim/{actionId}/attendee/{key}/work", async (string actionId, string key, IGrainFactory grains) =>
     Results.Ok(await ChargerSimAttendee(grains, actionId, key).GetWorkStatus()));
 
-// A stable sample of charger cells for the attendee's live fleet grid. `take` is
-// clamped so the payload stays small even for a 5,000-charger fleet.
+// A stable sample of charger cells for the attendee's live fleet grid, packed to
+// one character per cell so even the full fleet stays tiny on the wire:
+//   '.' idle, '0'-'9' active (digit = load bucket), 'p' paused, 'x' killed.
+// All chars are JSON-safe. The grid only needs state + load fraction (not the raw
+// power numbers), so 5,000 cells is ~5 KB instead of ~250 KB of JSON objects.
 api.MapGet("/chargersim/{actionId}/attendee/{key}/grid", async (string actionId, string key, int? take, IGrainFactory grains) =>
 {
-    var count = Math.Clamp(take ?? 300, 1, 400);
-    return Results.Ok(await ChargerSimAttendee(grains, actionId, key).GetStateSample(count));
+    var count = Math.Clamp(take ?? 300, 1, IAttendeeChargerSimGrain.MaxChargers);
+    var sample = await ChargerSimAttendee(grains, actionId, key).GetStateSample(count);
+
+    var packed = new char[sample.Count];
+    for (var i = 0; i < sample.Count; i++)
+    {
+        var c = sample[i];
+        packed[i] = c.State switch
+        {
+            ChargerSimState.ActiveSession => (char)('0' + Math.Clamp(
+                (int)((c.MaxPowerKw > 0 ? c.ActivePowerKw / c.MaxPowerKw : 0.5) * 10), 0, 9)),
+            ChargerSimState.PausedWithSession => 'p',
+            ChargerSimState.Killed => 'x',
+            _ => '.'
+        };
+    }
+
+    return Results.Ok(new { cells = new string(packed) });
 });
 
 api.MapPost("/chargersim/{actionId}/attendee/{key}/create", async (string actionId, string key, AmountRequest body, IGrainFactory grains) =>
