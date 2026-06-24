@@ -123,14 +123,40 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
 
     public Task<IReadOnlyList<ChargerCellState>> GetStateSample(int take)
     {
-        // Dictionary order (insertion order) is stable across polls as long as no
-        // entries are removed — and they never are (killed chargers are upserted to
-        // the Killed state, not deleted) — so a grid cell keeps its position.
+        // We sample in dictionary (insertion) order, which is stable across polls
+        // since entries are never removed (killed chargers are upserted to the Killed
+        // state, not deleted) — so the set of sampled chargers is stable as the fleet
+        // grows. We then scatter their grid positions with a deterministic per-charger
+        // hash.
+        //
+        // Why scatter: chargers are created and fire their 30-second reminders in
+        // roughly contiguous number order, so insertion order clusters same-aged
+        // chargers together. Rendered in that order, a wave of timers firing lights up
+        // a solid block of the grid at once. Ordering by a hash of the (immutable)
+        // charger id spreads each wave evenly across the whole grid, so transitions
+        // shimmer across the fleet instead of marching as blocks — and because the hash
+        // depends only on the id, every cell still keeps a fixed position between polls.
         IReadOnlyList<ChargerCellState> sample = _state.Contributions.Values
             .Take(Math.Max(0, take))
+            .OrderBy(c => Scatter(c.ChargerId))
             .Select(c => new ChargerCellState(c.State, c.ActivePowerKw, c.MaxPowerKw))
             .ToList();
         return Task.FromResult(sample);
+    }
+
+    // Deterministic, well-distributed hash of a charger id, used purely to scatter
+    // grid cell order (see GetStateSample). Deliberately not String.GetHashCode, which
+    // is salted per process and so would reshuffle the entire grid on every silo
+    // restart; this FNV-1a hash gives each id a fixed grid slot for the demo's life.
+    private static uint Scatter(string id)
+    {
+        uint hash = 2166136261u;
+        foreach (var ch in id)
+        {
+            hash ^= ch;
+            hash *= 16777619u;
+        }
+        return hash;
     }
 
     public Task<IReadOnlyList<string>> SelectChargerIds(ChargerSelectionFilter filter, int take)
