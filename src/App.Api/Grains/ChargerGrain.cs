@@ -32,11 +32,20 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
     private const string ReminderName = "tick";
     private static readonly TimeSpan TickPeriod = TimeSpan.FromSeconds(30);
 
+    // Bounds on how long a simulated session runs. It won't auto-end (via the
+    // simulation tick) before MinSessionDuration, and is force-ended on the first
+    // tick at or past MaxSessionDuration. Attendee-issued StopSession / chaos
+    // commands ignore both bounds. With 30s ticks the floor/ceiling are reached on
+    // tick boundaries, so the effective ceiling can run up to one tick long.
+    private static readonly TimeSpan MinSessionDuration = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan MaxSessionDuration = TimeSpan.FromMinutes(5);
+
     // Candidate max-power ratings (kW), one is picked per charger at creation.
     private static readonly double[] PowerRatings = [7.4, 11, 22, 50, 150];
 
     // Per-tick transition probabilities. With a ~30s tick, an end-of-session
-    // chance of ~1/6 per tick puts the mean active-session length near 3 minutes.
+    // chance of ~0.17 per tick gives an unbounded mean session length near 3
+    // minutes; the Min/MaxSessionDuration bounds below then clamp it to [1, 5] min.
     private const double StartChancePerTick = 0.30;
     private const double PauseChancePerTick = 0.12;
     private const double ResumeChancePerTick = 0.55;
@@ -117,11 +126,7 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
     public Task StopSession() => Mutate(s =>
     {
         if (s.Killed || s.State is ChargerSimState.NoSession) return;
-        s.State = ChargerSimState.NoSession;
-        s.ActiveSessionId = null;
-        s.ActivePowerKw = 0;
-        s.SessionStartedAt = null;
-        s.SessionKwh = 0;
+        EndSession(s);
     });
 
     public Task LowerPowerUsage() => Mutate(s =>
@@ -198,14 +203,20 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
                     s.ActivePowerKw = Math.Clamp(
                         s.ActivePowerKw * (0.9 + Random.Shared.NextDouble() * 0.2), 1.0, s.MaxPowerKw);
 
+                    if (MustEndSession(s))
+                    {
+                        EndSession(s);
+                        break;
+                    }
+
                     var roll = Random.Shared.NextDouble();
                     if (roll < EndSessionChancePerTick)
                     {
-                        s.State = ChargerSimState.NoSession;
-                        s.ActiveSessionId = null;
-                        s.ActivePowerKw = 0;
-                        s.SessionStartedAt = null;
-                        s.SessionKwh = 0;
+                        // Too young to end yet — keep charging this tick.
+                        if (CanAutoEndSession(s))
+                        {
+                            EndSession(s);
+                        }
                     }
                     else if (roll < EndSessionChancePerTick + PauseChancePerTick)
                     {
@@ -215,19 +226,22 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
                     break;
 
                 case ChargerSimState.PausedWithSession:
+                    if (MustEndSession(s))
+                    {
+                        EndSession(s);
+                        break;
+                    }
+
                     var r = Random.Shared.NextDouble();
                     if (r < ResumeChancePerTick)
                     {
                         s.State = ChargerSimState.ActiveSession;
                         s.ActivePowerKw = InitialPower(s);
                     }
-                    else if (r < ResumeChancePerTick + EndSessionChancePerTick)
+                    else if (r < ResumeChancePerTick + EndSessionChancePerTick && CanAutoEndSession(s))
                     {
-                        s.State = ChargerSimState.NoSession;
-                        s.ActiveSessionId = null;
-                        s.ActivePowerKw = 0;
-                        s.SessionStartedAt = null;
-                        s.SessionKwh = 0;
+                        // Otherwise stay paused (incl. too-young end rolls).
+                        EndSession(s);
                     }
                     break;
             }
@@ -267,11 +281,7 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
             case 3: // stop session
                 if (s.State is ChargerSimState.ActiveSession or ChargerSimState.PausedWithSession)
                 {
-                    s.State = ChargerSimState.NoSession;
-                    s.ActiveSessionId = null;
-                    s.ActivePowerKw = 0;
-                    s.SessionStartedAt = null;
-                    s.SessionKwh = 0;
+                    EndSession(s);
                 }
                 break;
             case 4: // lower power
@@ -284,6 +294,27 @@ public sealed class ChargerGrain : Grain, IChargerGrain, IRemindable
                 break;
         }
     }
+
+    // Clears all session fields and returns the charger to NoSession. Shared by the
+    // simulation tick, the StopSession command, and the chaos "stop" path.
+    private static void EndSession(ChargerState s)
+    {
+        s.State = ChargerSimState.NoSession;
+        s.ActiveSessionId = null;
+        s.ActivePowerKw = 0;
+        s.SessionStartedAt = null;
+        s.SessionKwh = 0;
+    }
+
+    // True once a session has run long enough that the tick is allowed to end it.
+    private static bool CanAutoEndSession(ChargerState s) =>
+        s.SessionStartedAt is null
+        || DateTimeOffset.UtcNow - s.SessionStartedAt >= MinSessionDuration;
+
+    // True once a session has hit its ceiling and the tick must end it.
+    private static bool MustEndSession(ChargerState s) =>
+        s.SessionStartedAt is not null
+        && DateTimeOffset.UtcNow - s.SessionStartedAt >= MaxSessionDuration;
 
     private static double InitialPower(ChargerState s) =>
         Math.Clamp(s.MaxPowerKw * (0.6 + Random.Shared.NextDouble() * 0.4), 1.0, s.MaxPowerKw);
