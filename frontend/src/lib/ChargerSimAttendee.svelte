@@ -41,9 +41,8 @@
   }
 
   interface Cell {
-    state: number;
-    activePowerKw: number;
-    maxPowerKw: number;
+    state: number; // 0 idle, 1 active, 2 paused, 3 killed
+    load: number; // active-session load fraction 0..1 (0 for other states)
   }
 
   interface LeaderboardRow {
@@ -103,12 +102,26 @@
     poll = setInterval(refresh, 2000);
   }
 
+  // Unpack the one-char-per-cell grid payload (see the /grid endpoint):
+  // '.' idle, '0'-'9' active (digit = load bucket), 'p' paused, 'x' killed.
+  function decodeCells(packed: string): Cell[] {
+    const out: Cell[] = new Array(packed.length);
+    for (let i = 0; i < packed.length; i++) {
+      const ch = packed[i];
+      if (ch === '.') out[i] = { state: 0, load: 0 };
+      else if (ch === 'p') out[i] = { state: 2, load: 0 };
+      else if (ch === 'x') out[i] = { state: 3, load: 0 };
+      else out[i] = { state: 1, load: (ch.charCodeAt(0) - 48) / 9 };
+    }
+    return out;
+  }
+
   async function refresh() {
     try {
       const [sumRes, workRes, gridRes, lbRes, goalRes] = await Promise.all([
         fetch(`${base}/summary`, { headers: sessionHeaders() }),
         fetch(`${base}/work`, { headers: sessionHeaders() }),
-        fetch(`${base}/grid`, { headers: sessionHeaders() }),
+        fetch(`${base}/grid?take=5000`, { headers: sessionHeaders() }),
         fetch(`/api/chargersim/${encodeURIComponent(actionId)}/leaderboard`, { headers: sessionHeaders() }),
         fetch(`/api/chargersim/${encodeURIComponent(actionId)}/goal`, { headers: sessionHeaders() })
       ]);
@@ -118,7 +131,7 @@
         powerHistory = [...powerHistory, summary?.totalActivePowerKw ?? 0].slice(-POWER_HISTORY_MAX);
       }
       if (workRes.ok) work = await workRes.json();
-      if (gridRes.ok) cells = await gridRes.json();
+      if (gridRes.ok) cells = decodeCells((await gridRes.json()).cells ?? '');
       if (lbRes.ok) leaderboard = await lbRes.json();
       if (goalRes.ok) goal = await goalRes.json();
       if (opened) await reloadOpened();
