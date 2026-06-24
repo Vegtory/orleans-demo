@@ -351,6 +351,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         {
             BatchChargerCommandType.StartSessions => (ChargerSelectionFilter.WithoutSession, "started sessions on"),
             BatchChargerCommandType.StopCharging => (ChargerSelectionFilter.ActiveSessions, "stopped charging on"),
+            BatchChargerCommandType.ResumeCharging => (ChargerSelectionFilter.PausedSessions, "resumed charging on"),
             BatchChargerCommandType.StopSessions => (ChargerSelectionFilter.ActiveOrPausedSessions, "stopped sessions on"),
             BatchChargerCommandType.LowerPowerUsage => (ChargerSelectionFilter.ActiveSessions, "lowered power usage on"),
             BatchChargerCommandType.IncreasePowerUsage => (ChargerSelectionFilter.ActiveSessions, "increased power usage on"),
@@ -368,6 +369,7 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         {
             BatchChargerCommandType.StartSessions => c.StartSession(),
             BatchChargerCommandType.StopCharging => c.StopCharging(),
+            BatchChargerCommandType.ResumeCharging => c.ResumeCharging(),
             BatchChargerCommandType.StopSessions => c.StopSession(),
             BatchChargerCommandType.LowerPowerUsage => c.LowerPowerUsage(),
             BatchChargerCommandType.IncreasePowerUsage => c.IncreasePowerUsage(),

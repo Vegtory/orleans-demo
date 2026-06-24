@@ -279,8 +279,12 @@
           <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
           <button disabled={busy} onclick={() => batch('StopSessions')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('stop')} Stop sessions</button>
         </div>
-        <!-- Charging: pause (stop charging) on its own — it sits between start and stop -->
-        <button disabled={busy} onclick={() => batch('StopCharging')} class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:opacity-50">{@render icon('pause')} Stop charging</button>
+        <!-- Charging: resume ⇄ stop -->
+        <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+          <button disabled={busy} onclick={() => batch('ResumeCharging')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-50">{@render icon('play')} Start charging</button>
+          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
+          <button disabled={busy} onclick={() => batch('StopCharging')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-50 disabled:opacity-50">{@render icon('pause')} Stop charging</button>
+        </div>
         <!-- Power: lower ⇄ increase -->
         <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
           <button disabled={busy} onclick={() => batch('LowerPowerUsage')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('down')} Lower power</button>
