@@ -306,6 +306,38 @@ public sealed class ChargerSimTests
     }
 
     [Fact]
+    public async Task Presenter_set_cap_is_enforced_and_defaults_to_100()
+    {
+        var actionId = Guid.NewGuid().ToString("N");
+        var action = _cluster.GrainFactory.GetGrain<IChargerSimActionGrain>(ChargerSimKeys.Action(actionId));
+        await action.Activate();
+
+        // Default cap when the presenter has not set one.
+        Assert.Equal(IAttendeeChargerSimGrain.DefaultMaxChargers, await action.GetMaxChargers());
+
+        var attendee = _cluster.GrainFactory.GetGrain<IAttendeeChargerSimGrain>(
+            ChargerSimKeys.Attendee(actionId, "alice-presetcap"));
+
+        // Tighten the cap to 30; a request for more is clamped to the cap.
+        await action.SetMaxChargers(30);
+        Assert.Equal(30, await action.GetMaxChargers());
+        Assert.Equal(30, await attendee.CreateChargers(100));
+        await Drain(attendee);
+        Assert.Equal(30, (await attendee.GetChargerIds()).Count);
+
+        // Raising the cap lets the attendee create more.
+        await action.SetMaxChargers(45);
+        Assert.Equal(45, await attendee.CreateChargers(100));
+        await Drain(attendee);
+
+        // Out-of-range values are clamped to [1, MaxChargers].
+        await action.SetMaxChargers(0);
+        Assert.Equal(1, await action.GetMaxChargers());
+        await action.SetMaxChargers(IAttendeeChargerSimGrain.MaxChargers + 10_000);
+        Assert.Equal(IAttendeeChargerSimGrain.MaxChargers, await action.GetMaxChargers());
+    }
+
+    [Fact]
     public async Task KillMyChargers_marks_all_as_killed_in_summary()
     {
         var actionId = Guid.NewGuid().ToString("N");

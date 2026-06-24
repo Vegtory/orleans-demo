@@ -24,6 +24,21 @@ public interface IChargerSimActionGrain : IGrainWithStringKey
     [AlwaysInterleave]
     Task<bool> IsKillSwitchEnabled();
 
+    /// <summary>
+    /// The presenter-configurable maximum number of live chargers each attendee may
+    /// create. Defaults to <see cref="IAttendeeChargerSimGrain.DefaultMaxChargers"/>.
+    /// Marked <see cref="AlwaysInterleaveAttribute"/> like the other flag reads so an
+    /// attendee grain can pull it from inside its own command turn without deadlocking.
+    /// </summary>
+    [AlwaysInterleave]
+    Task<int> GetMaxChargers();
+
+    /// <summary>
+    /// Sets the per-attendee charger cap, clamped to
+    /// [1, <see cref="IAttendeeChargerSimGrain.MaxChargers"/>].
+    /// </summary>
+    Task SetMaxChargers(int maxChargers);
+
     Task RegisterAttendee(string attendeeId);
 
     Task<IReadOnlyList<ChargerFleetSummary>> GetAllAttendeeSummaries();

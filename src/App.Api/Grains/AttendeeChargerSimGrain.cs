@@ -138,9 +138,12 @@ public sealed class AttendeeChargerSimGrain : Grain, IAttendeeChargerSimGrain
         // not the total ever created. We also reserve room for work already queued
         // so rapid requests can never blow past the cap. Charger numbers still
         // increase monotonically (driven by Count) so display ids stay unique.
+        // The cap is the presenter-configurable per-attendee limit; read it on the
+        // (cold) create path the same way the kill switch is read just above.
+        var cap = await Action.GetMaxChargers();
         var summary = await Aggregate.GetSummary();
         var live = summary.NoSessionCount + summary.ActiveSessionCount + summary.PausedWithSessionCount;
-        var room = IAttendeeChargerSimGrain.MaxChargers - live - _state.State.PendingCreate;
+        var room = cap - live - _state.State.PendingCreate;
         var toCreate = Math.Clamp(amount, 0, Math.Max(0, room));
         if (toCreate == 0)
         {
