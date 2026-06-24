@@ -207,6 +207,7 @@
         </form>
       </div>
     </div>
+  {:else}
     <!-- Fleet aggregate (ChargerSim dashboards) and the cluster overview sit
          stacked on small screens and side by side from the lg breakpoint up. -->
     <div class="grid gap-6 lg:grid-cols-2 lg:items-start">
