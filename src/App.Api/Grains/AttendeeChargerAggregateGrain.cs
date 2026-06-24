@@ -216,6 +216,7 @@ public sealed class AttendeeChargerAggregateGrain : Grain, IAttendeeChargerAggre
     {
         ChargerSelectionFilter.WithoutSession => c.State == ChargerSimState.NoSession,
         ChargerSelectionFilter.ActiveSessions => c.State == ChargerSimState.ActiveSession,
+        ChargerSelectionFilter.PausedSessions => c.State == ChargerSimState.PausedWithSession,
         ChargerSelectionFilter.ActiveOrPausedSessions =>
             c.State is ChargerSimState.ActiveSession or ChargerSimState.PausedWithSession,
         ChargerSelectionFilter.Any => c.State != ChargerSimState.Killed,

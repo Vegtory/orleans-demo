@@ -28,7 +28,8 @@ public enum BatchChargerCommandType
     LowerPowerUsage,
     RandomChaos,
     Kill,
-    IncreasePowerUsage
+    IncreasePowerUsage,
+    ResumeCharging
 }
 
 /// <summary>A command an attendee can issue against a single opened charger.</summary>
@@ -49,7 +50,8 @@ public enum ChargerSelectionFilter
     WithoutSession,
     ActiveSessions,
     ActiveOrPausedSessions,
-    Any
+    Any,
+    PausedSessions
 }
 
 /// <summary>

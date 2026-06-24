@@ -71,7 +71,6 @@
   let work = $state<WorkStatus>({ pendingChargers: 0, queuedCommands: 0 });
   const working = $derived(work.pendingChargers > 0 || work.queuedCommands > 0);
   let opened = $state<Charger | null>(null);
-  let openId = $state('');
   let error = $state<string | null>(null);
   let busy = $state(false);
 
@@ -165,19 +164,6 @@
   const batch = (command: string, amount = 100) => post('/batch', { command, amount });
   const killMine = () => post('/kill');
 
-  async function openCharger(id: string) {
-    if (!id) return;
-    error = null;
-    try {
-      const res = await fetch(`${base}/charger/${encodeURIComponent(id)}`, { headers: sessionHeaders() });
-      if (res.status === 404) throw new Error(`No charger ${id}`);
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      opened = await res.json();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Unknown error';
-    }
-  }
-
   async function openRandom(kind: 'active' | 'paused') {
     error = null;
     try {
@@ -216,6 +202,22 @@
 </script>
 
 <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+  <!-- Small inline icon set (Heroicons-style) so the controls read as real buttons. -->
+  {#snippet icon(name: string, cls = 'h-4 w-4')}
+    <svg class="{cls} shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      {#if name === 'plus'}<path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+      {:else if name === 'play'}<path d="M6.3 2.841A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.269l9.344-5.89a1.5 1.5 0 0 0 0-2.538L6.3 2.84Z" />
+      {:else if name === 'stop'}<path d="M5.25 3A2.25 2.25 0 0 0 3 5.25v9.5A2.25 2.25 0 0 0 5.25 17h9.5A2.25 2.25 0 0 0 17 14.75v-9.5A2.25 2.25 0 0 0 14.75 3h-9.5Z" />
+      {:else if name === 'pause'}<path d="M5.75 3a.75.75 0 0 0-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 0 0 .75-.75V3.75A.75.75 0 0 0 7.25 3h-1.5ZM12.75 3a.75.75 0 0 0-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 0 0 .75-.75V3.75a.75.75 0 0 0-.75-.75h-1.5Z" />
+      {:else if name === 'down'}<path d="M10 3a.75.75 0 0 1 .75.75v10.638l3.96-4.158a.75.75 0 1 1 1.08 1.04l-5.25 5.5a.75.75 0 0 1-1.08 0l-5.25-5.5a.75.75 0 1 1 1.08-1.04l3.96 4.158V3.75A.75.75 0 0 1 10 3Z" />
+      {:else if name === 'up'}<path d="M10 17a.75.75 0 0 1-.75-.75V5.612L5.29 9.77a.75.75 0 0 1-1.08-1.04l5.25-5.5a.75.75 0 0 1 1.08 0l5.25 5.5a.75.75 0 1 1-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0 1 10 17Z" />
+      {:else if name === 'bolt'}<path d="M11.983 1.907a.75.75 0 0 0-1.292-.657l-8.5 9.5A.75.75 0 0 0 2.75 12h6.572l-1.305 6.093a.75.75 0 0 0 1.292.657l8.5-9.5A.75.75 0 0 0 17.25 8h-6.572l1.305-6.093Z" />
+      {:else if name === 'sparkles'}<path d="M15.98 1.804a1 1 0 0 0-1.96 0l-.24 1.192a1 1 0 0 1-.784.785l-1.192.238a1 1 0 0 0 0 1.962l1.192.238a1 1 0 0 1 .785.785l.238 1.192a1 1 0 0 0 1.962 0l.238-1.192a1 1 0 0 1 .785-.785l1.192-.238a1 1 0 0 0 0-1.962l-1.192-.238a1 1 0 0 1-.785-.785l-.238-1.192ZM6.949 5.684a1 1 0 0 0-1.898 0l-.683 2.051a1 1 0 0 1-.633.633l-2.051.683a1 1 0 0 0 0 1.898l2.051.684a1 1 0 0 1 .633.632l.683 2.051a1 1 0 0 0 1.898 0l.683-2.051a1 1 0 0 1 .633-.633l2.051-.683a1 1 0 0 0 0-1.898l-2.051-.683a1 1 0 0 1-.633-.633L6.95 5.684ZM13.949 13.684a1 1 0 0 0-1.898 0l-.184.551a1 1 0 0 1-.632.633l-.551.183a1 1 0 0 0 0 1.898l.551.183a1 1 0 0 1 .633.633l.183.551a1 1 0 0 0 1.898 0l.184-.551a1 1 0 0 1 .632-.633l.551-.183a1 1 0 0 0 0-1.898l-.551-.184a1 1 0 0 1-.633-.632l-.183-.551Z" />
+      {:else if name === 'trash'}<path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clip-rule="evenodd" />
+      {/if}
+    </svg>
+  {/snippet}
+
   <div class="flex items-center justify-between">
     <div>
       <div class="flex flex-wrap items-center gap-2">
@@ -239,8 +241,8 @@
   <div class="mt-5 space-y-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <h3 class="text-sm font-bold tracking-tight text-slate-700">Fleet controls</h3>
-      <button disabled={busy} onclick={killMine} class="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50">
-        Kill my chargers
+      <button disabled={busy} onclick={killMine} class="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50">
+        {@render icon('trash')} Kill my chargers
       </button>
     </div>
 
@@ -248,21 +250,36 @@
     <div>
       <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Add chargers <span class="font-normal normal-case text-slate-400">— up to 5,000, created in the background</span></h4>
       <div class="mt-2 flex flex-wrap gap-2">
-        <button disabled={busy} onclick={() => create(100)} class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">+100 chargers</button>
+        <button disabled={busy} onclick={() => create(100)} class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50">{@render icon('plus')} 100 chargers</button>
       </div>
     </div>
 
-    <!-- Command the whole fleet -->
+    <!-- Command the whole fleet. Opposing actions are paired into segmented controls. -->
     <div>
       <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Command the fleet <span class="font-normal normal-case text-slate-400">— 100 chargers, queued &amp; run in the background</span></h4>
-      <div class="mt-2 flex flex-wrap gap-2">
-        <button disabled={busy} onclick={() => batch('StartSessions')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Start sessions</button>
-        <button disabled={busy} onclick={() => batch('StopCharging')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop charging</button>
-        <button disabled={busy} onclick={() => batch('StopSessions')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Stop sessions</button>
-        <button disabled={busy} onclick={() => batch('LowerPowerUsage')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Lower power</button>
-        <button disabled={busy} onclick={() => batch('IncreasePowerUsage')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Increase power</button>
-        <button disabled={busy} onclick={() => batch('RandomChaos')} class="rounded-lg border border-purple-300 bg-white px-3 py-1.5 text-sm font-medium text-purple-700 transition hover:bg-purple-50 disabled:opacity-50">Random chaos</button>
-        <button disabled={busy} onclick={() => batch('Kill')} class="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50">Kill 100</button>
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <!-- Sessions: start ⇄ stop -->
+        <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+          <button disabled={busy} onclick={() => batch('StartSessions')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-50">{@render icon('play')} Start sessions</button>
+          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
+          <button disabled={busy} onclick={() => batch('StopSessions')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('stop')} Stop sessions</button>
+        </div>
+        <!-- Charging: resume ⇄ stop -->
+        <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+          <button disabled={busy} onclick={() => batch('ResumeCharging')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-50">{@render icon('play')} Start charging</button>
+          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
+          <button disabled={busy} onclick={() => batch('StopCharging')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-50 disabled:opacity-50">{@render icon('pause')} Stop charging</button>
+        </div>
+        <!-- Power: lower ⇄ increase -->
+        <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+          <button disabled={busy} onclick={() => batch('LowerPowerUsage')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('down')} Lower power</button>
+          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
+          <button disabled={busy} onclick={() => batch('IncreasePowerUsage')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('up')} Increase power</button>
+        </div>
+        <!-- Spacer pushes the disruptive actions to the right -->
+        <div class="grow"></div>
+        <button disabled={busy} onclick={() => batch('RandomChaos')} class="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-white px-3 py-1.5 text-sm font-medium text-purple-700 shadow-sm transition hover:bg-purple-50 disabled:opacity-50">{@render icon('sparkles')} Random chaos</button>
+        <button disabled={busy} onclick={() => batch('Kill')} class="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 shadow-sm transition hover:bg-red-50 disabled:opacity-50">{@render icon('trash')} Kill 100</button>
       </div>
     </div>
 
@@ -270,12 +287,12 @@
     <div>
       <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Inspect a single charger</h4>
       <div class="mt-2 flex flex-wrap items-center gap-2">
-        <button disabled={busy} onclick={() => openRandom('active')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Random active</button>
-        <button disabled={busy} onclick={() => openRandom('paused')} class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Random paused</button>
-        <form class="flex items-center gap-2" onsubmit={(e) => { e.preventDefault(); openCharger(openId.trim().toUpperCase()); }}>
-          <input bind:value={openId} placeholder="CP-000042" class="w-32 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" />
-          <button type="submit" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Open</button>
-        </form>
+        <!-- Pull a random charger of a given state -->
+        <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+          <button disabled={busy} onclick={() => openRandom('active')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-50">{@render icon('bolt')} Random active</button>
+          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
+          <button disabled={busy} onclick={() => openRandom('paused')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-50 disabled:opacity-50">{@render icon('pause')} Random paused</button>
+        </div>
       </div>
     </div>
   </div>
@@ -296,14 +313,27 @@
         <dt class="text-slate-500">Session duration</dt><dd class="font-medium tabular-nums">{sessionDuration(opened)}</dd>
         <dt class="text-slate-500">Last updated</dt><dd class="text-xs">{new Date(opened.lastUpdatedAt).toLocaleTimeString()}</dd>
       </dl>
-      <div class="mt-3 flex flex-wrap gap-2">
-        <button disabled={busy} onclick={() => chargerCommand('StartSession')} class="rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-green-700 disabled:opacity-50">Start</button>
-        <button disabled={busy} onclick={() => chargerCommand('PauseCharging')} class="rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50">Pause</button>
-        <button disabled={busy} onclick={() => chargerCommand('ResumeCharging')} class="rounded-lg bg-green-500 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-green-600 disabled:opacity-50">Resume</button>
-        <button disabled={busy} onclick={() => chargerCommand('StopSession')} class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">Stop</button>
-        <button disabled={busy} onclick={() => chargerCommand('LowerPower')} class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">Lower power</button>
-        <button disabled={busy} onclick={() => chargerCommand('IncreasePower')} class="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">Increase power</button>
-        <button disabled={busy} onclick={() => chargerCommand('Kill')} class="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-red-700 disabled:opacity-50">Kill</button>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <!-- Session: start ⇄ stop -->
+        <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+          <button disabled={busy} onclick={() => chargerCommand('StartSession')} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-50">{@render icon('play', 'h-3.5 w-3.5')} Start</button>
+          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
+          <button disabled={busy} onclick={() => chargerCommand('StopSession')} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('stop', 'h-3.5 w-3.5')} Stop</button>
+        </div>
+        <!-- Charging: pause ⇄ resume -->
+        <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+          <button disabled={busy} onclick={() => chargerCommand('PauseCharging')} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-50 disabled:opacity-50">{@render icon('pause', 'h-3.5 w-3.5')} Pause</button>
+          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
+          <button disabled={busy} onclick={() => chargerCommand('ResumeCharging')} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-50">{@render icon('play', 'h-3.5 w-3.5')} Resume</button>
+        </div>
+        <!-- Power: lower ⇄ increase -->
+        <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+          <button disabled={busy} onclick={() => chargerCommand('LowerPower')} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('down', 'h-3.5 w-3.5')} Lower</button>
+          <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
+          <button disabled={busy} onclick={() => chargerCommand('IncreasePower')} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('up', 'h-3.5 w-3.5')} Increase</button>
+        </div>
+        <div class="grow"></div>
+        <button disabled={busy} onclick={() => chargerCommand('Kill')} class="inline-flex items-center gap-1 rounded-lg border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 shadow-sm transition hover:bg-red-50 disabled:opacity-50">{@render icon('trash', 'h-3.5 w-3.5')} Kill</button>
       </div>
     </div>
   {/if}
