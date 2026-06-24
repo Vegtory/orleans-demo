@@ -10,9 +10,9 @@ Everything runs in a single ASP.NET Core process:
 - The same process hosts an **Orleans silo** (co-hosted).
 - The Svelte static build is served from `wwwroot`.
 
-It is safe to expose publicly as a demo: no Orleans dashboard, no Swagger in
-production, no secrets in the frontend, and no Orleans silo/gateway ports
-exposed externally (only HTTP/8080).
+It is safe to expose publicly as a demo: the Orleans dashboard is opt-in and
+off by default, no Swagger in production, no secrets in the frontend, and no
+Orleans silo/gateway ports exposed externally (only HTTP/8080).
 
 ## Architecture
 
@@ -126,6 +126,22 @@ code is identical in both modes — only the host configuration changes.
 `AzureStorage` mode reads `ORLEANS_AZURE_STORAGE_CONNECTION_STRING` from the
 environment/config only. No secrets are hardcoded; the app fails fast at startup
 if the mode is `AzureStorage` but the connection string is missing.
+
+### Orleans dashboard (optional)
+
+The official Orleans dashboard (`Microsoft.Orleans.Dashboard`, preview) is wired
+into the co-hosted silo but **disabled by default**. Set `ORLEANS_DASHBOARD=true`
+to enable it; it is then served at **`/dashboard`** in the same process:
+
+```bash
+ORLEANS_DASHBOARD=true dotnet run --project src/App.Api
+# then open http://localhost:8080/dashboard
+```
+
+It shows silos, grain activations, per-method profiling, reminders and live
+logs. It has **no built-in authentication**, so only enable it behind a trusted
+network — never on a publicly reachable deployment. Leaving the variable unset
+maps no dashboard routes at all.
 
 ## Prerequisites (local)
 
@@ -272,8 +288,11 @@ Once the app is reachable, switch to `AzureStorage` clustering/persistence
   a single-replica demo. If you scale to multiple replicas, switch to Azure
   Storage (or another real Orleans clustering provider) **first** — otherwise
   replicas won't form a cluster and behavior will be inconsistent.
-- **Do not expose the Orleans dashboard publicly.** This starter intentionally
-  does not include it.
+- **Do not expose the Orleans dashboard publicly.** The official Orleans
+  dashboard (preview) is wired up but **off by default**. Enable it only behind
+  a trusted network by setting `ORLEANS_DASHBOARD=true`; it then serves at
+  `/dashboard` and exposes cluster internals (silos, grain activations, method
+  profiling, reminders, live logs) with no built-in authentication.
 - **Do not put secrets in the Svelte app.** The frontend is static and fully
   public; it only calls relative `/api` URLs.
 - **Authentication is not included.** Add authentication/authorization before

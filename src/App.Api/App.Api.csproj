@@ -27,6 +27,11 @@
 
     <!-- OpenAPI/Swagger UI is registered in Development only. -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.1" />
+
+    <!-- Official Orleans dashboard (preview). Opt-in via ORLEANS_DASHBOARD=true
+         and served at /dashboard; off by default so nothing is exposed unless
+         explicitly enabled. -->
+    <PackageReference Include="Microsoft.Orleans.Dashboard" Version="10.2.0" />
   </ItemGroup>
 
 </Project>
