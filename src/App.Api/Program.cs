@@ -64,6 +64,12 @@ builder.Host.UseOrleans(silo =>
     silo.Configure<ReminderOptions>(options =>
         options.MinimumReminderPeriod = TimeSpan.FromSeconds(15));
 
+    // Collect idle activations more aggressively than the 2-hour default so the
+    // demo cluster sheds idle grains quickly. Must stay above the collection
+    // quantum (1 minute); 2 minutes is the smallest practical value here.
+    silo.Configure<GrainCollectionOptions>(options =>
+        options.CollectionAge = TimeSpan.FromMinutes(2));
+
     // -----------------------------------------------------------------------
     // Debug/demo cluster observability (powers the presenter "cluster activity"
     // visualization). An outgoing call filter records grain->grain calls into a
