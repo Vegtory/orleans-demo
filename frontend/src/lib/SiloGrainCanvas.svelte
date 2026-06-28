@@ -56,6 +56,7 @@
     multiplechoice: '#fbbf24',
     presentation: '#f472b6',
     reactions: '#f87171',
+    attendeeroster: '#22d3ee',
     charger: '#38bdf8',
     attendeechargersim: '#2dd4bf',
     attendeechargeraggregate: '#a78bfa',
@@ -67,6 +68,7 @@
     multiplechoice: 'Multiple choice',
     presentation: 'Presentation',
     reactions: 'Reactions',
+    attendeeroster: 'Attendee roster',
     charger: 'Sim charger',
     attendeechargersim: 'Charger fleet',
     attendeechargeraggregate: 'Fleet aggregate',
@@ -177,6 +179,13 @@
   const keyPart = (grainId: string) => grainId.slice(grainId.indexOf('/') + 1);
   const colorForType = (type: string) => COLORS[type] ?? '#94a3b8';
   const labelForType = (type: string) => LABELS[type] ?? type;
+
+  // Singleton grains (reactions, presentation, roster) all share the literal
+  // backend key "global", which is meaningless under a dot. Show what the grain
+  // represents — its type label — instead; everything else keeps its real key.
+  const GLOBAL_KEY = 'global';
+  const grainLabel = (grainId: string) =>
+    keyPart(grainId) === GLOBAL_KEY ? labelForType(typeKey(grainId)) : keyPart(grainId);
   const isAppGrain = (g: ActiveGrain) =>
     g.grainType.startsWith(APP_PREFIX) && !HIDDEN.has(typeKey(g.grainId));
 
@@ -227,7 +236,7 @@
       id: g.grainId,
       type: typeKey(g.grainId),
       silo: g.siloAddress,
-      label: keyPart(g.grainId)
+      label: grainLabel(g.grainId)
     }));
     viz?.setGrains(grains);
 
