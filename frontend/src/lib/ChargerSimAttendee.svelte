@@ -265,7 +265,7 @@
 
     <!-- Command the whole fleet. Opposing actions are paired into segmented controls. -->
     <div>
-      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Command the fleet <span class="font-normal normal-case text-slate-400">— 100 chargers, queued &amp; run in the background</span></h4>
+      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Command the fleet <span class="font-normal normal-case text-slate-400">— each command runs on 100 random chargers, queued &amp; run in the background</span></h4>
       <div class="mt-2 flex flex-wrap items-center gap-2">
         <!-- Sessions: start ⇄ stop -->
         <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
