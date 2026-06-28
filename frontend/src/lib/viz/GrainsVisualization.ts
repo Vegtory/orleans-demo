@@ -59,7 +59,8 @@ const REPEL_RANGE = 44; // px; repulsion only acts within this radius
 const WALL_PUSH = 0.06; // soft containment force near a silo's inner edge
 const DAMPING = 0.86; // velocity damping per frame
 const MAX_SPEED = 6; // px/frame clamp to keep things stable
-const BASE_RADIUS = 4.5; // resting grain radius
+const BASE_RADIUS = 4.5; // resting grain radius (lower bound when crowded)
+const MAX_RADIUS = 14; // upper bound when a sparse cluster has room to breathe
 const SPAWN_JITTER = 26; // spread when a grain first appears at its centre
 
 const HEAT_DECAY = 0.95; // per-frame multiplicative decay of "busyness"
@@ -116,6 +117,11 @@ export class GrainsVisualization {
   private nodes = new Map<string, GrainNode>();
   private silos = new Map<string, SiloBox>();
   private calls: CallAnim[] = [];
+
+  // Resting grain radius for the current layout. Scales up when there are few
+  // grains with room to spare, easing back toward BASE_RADIUS as the cluster
+  // fills up. Recomputed on every relayout (data change / resize).
+  private baseRadius = BASE_RADIUS;
 
   private width = 0;
   private height = 0;
@@ -243,7 +249,7 @@ export class GrainsVisualization {
       vx: 0,
       vy: 0,
       heat: 0,
-      radius: BASE_RADIUS,
+      radius: this.baseRadius,
       alpha: 0, // eases up to 1 (spawn-in)
       dead: false
     };
@@ -296,6 +302,32 @@ export class GrainsVisualization {
       });
     });
     this.silos = next;
+    this.computeBaseRadius();
+  }
+
+  // Pick a resting grain radius that scales with the breathing room available:
+  // few grains spread over large cards swell toward MAX_RADIUS, while a crowded
+  // cluster eases back to the compact BASE_RADIUS. Driven by the inner card area
+  // shared per live grain, so it reacts to both grain count and canvas size.
+  private computeBaseRadius(): void {
+    let live = 0;
+    for (const n of this.nodes.values()) if (!n.dead) live++;
+
+    let area = 0;
+    for (const box of this.silos.values()) {
+      const innerW = Math.max(0, box.w - CARD_PAD * 2);
+      const innerH = Math.max(0, box.h - HEADER_H - CARD_PAD * 1.5);
+      area += innerW * innerH;
+    }
+
+    if (live === 0 || area <= 0) {
+      this.baseRadius = BASE_RADIUS;
+      return;
+    }
+
+    // Each grain gets a share of the area; the dot fills a fraction of that cell.
+    const fit = Math.sqrt(area / live) * 0.2;
+    this.baseRadius = Math.max(BASE_RADIUS, Math.min(MAX_RADIUS, fit));
   }
 
   // Inner rectangle a grain is gently kept within (below the header strip).
@@ -396,8 +428,9 @@ export class GrainsVisualization {
         a.x += a.vx;
         a.y += a.vy;
 
-        // Busy grains swell, idle grains shrink — eased toward the target size.
-        const target = BASE_RADIUS * (1 + a.heat * 0.9) * (a.dead ? 1 : 1);
+        // Busy grains swell, idle grains shrink — eased toward the target size,
+        // which scales with how much room the current layout affords.
+        const target = this.baseRadius * (1 + a.heat * 0.9);
         a.radius += (target - a.radius) * 0.2;
       }
     }
