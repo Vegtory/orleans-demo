@@ -70,6 +70,15 @@ builder.Host.UseOrleans(silo =>
     silo.Configure<GrainCollectionOptions>(options =>
         options.CollectionAge = TimeSpan.FromMinutes(2));
 
+    // Activation repartitioning: Orleans periodically migrates activations closer
+    // to the grains they communicate with most, reducing cross-silo chatter. It's
+    // off by default and still experimental in Orleans 10, so the API is gated
+    // behind the ORLEANSEXP001 diagnostic — we explicitly opt in here. Great for
+    // the cluster-activity demo, where grain->grain calls drive the visualization.
+#pragma warning disable ORLEANSEXP001
+    silo.AddActivationRepartitioner();
+#pragma warning restore ORLEANSEXP001
+
     // -----------------------------------------------------------------------
     // Debug/demo cluster observability (powers the presenter "cluster activity"
     // visualization). An outgoing call filter records grain->grain calls into a
