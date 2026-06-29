@@ -265,8 +265,12 @@
 
     <!-- Command the whole fleet. Opposing actions are paired into segmented controls. -->
     <div>
-      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Command the fleet <span class="font-normal normal-case text-slate-400">— each command runs on 100 random chargers, queued &amp; run in the background</span></h4>
-      <div class="mt-2 flex flex-wrap items-center gap-2">
+      <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-400">Command the fleet</h4>
+      <div class="mt-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+        {@render icon('sparkles')}
+        <span>Each command below runs on <span class="font-bold">100 random chargers</span> — they're queued and run in the background.</span>
+      </div>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
         <!-- Sessions: start ⇄ stop -->
         <div class="inline-flex items-stretch overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
           <button disabled={busy} onclick={() => batch('StartSessions')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 transition hover:bg-green-50 disabled:opacity-50">{@render icon('play')} Start sessions</button>
@@ -285,9 +289,8 @@
           <span class="w-px self-stretch bg-slate-200" aria-hidden="true"></span>
           <button disabled={busy} onclick={() => batch('IncreasePowerUsage')} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">{@render icon('up')} Increase power</button>
         </div>
-        <!-- Spacer pushes the disruptive actions to the right -->
+        <!-- Spacer pushes the disruptive action to the right -->
         <div class="grow"></div>
-        <button disabled={busy} onclick={() => batch('RandomChaos')} class="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-white px-3 py-1.5 text-sm font-medium text-purple-700 shadow-sm transition hover:bg-purple-50 disabled:opacity-50">{@render icon('sparkles')} Random chaos</button>
         <button disabled={busy} onclick={() => batch('Kill')} class="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 shadow-sm transition hover:bg-red-50 disabled:opacity-50">{@render icon('trash')} Kill 100</button>
       </div>
     </div>
